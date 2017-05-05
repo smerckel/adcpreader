@@ -5,6 +5,8 @@ import logging
 
 import numpy as np
 
+# So das ist jetzt anders
+
 # add filename=... to log to a file instead.
 logging.basicConfig(level=logging.DEBUG)
 
