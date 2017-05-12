@@ -92,8 +92,6 @@ class Pd0NDF(object):
             self.read_variable_leader(data1d,ens['variable_leader'])
             self.read_onedimdata(data1d, ens)
             self.read_twodimdata(data2d, ens)
-            if i==100:
-                break
         return config, data1d, data2d
             
         
@@ -136,26 +134,32 @@ class Pd0NDF(object):
                 data.add_global_parameter(k, v, units[k])
         return data
 
-    
-#pd0 = rdi.PD0()
-#for ens in pd0.ensemble_generator(glob.glob("/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")):
-#    break
 
-dbds = dbdreader.MultiDBD(pattern="/home/lucas/gliderdata/subex2016/hd/comet*.[de]bd")
-tmp = dbds.get_sync("sci_ctd41cp_timestamp",
-                    "sci_water_cond sci_water_temp sci_water_pressure m_lat m_lon".split())
-t, tctd, C, T, P, lat , lon = np.compress(tmp[2]>0, tmp, axis=1)
+if 1:    
+    # no correctionis applied:
+    cnv = Pd0NDF()
+    fns = cnv.read_files(pattern = "/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")
+    config, data1d, data2d = cnv.read_data(fns, ctd_data=None)
+    ndfdata = cnv.create_ndf(config, data1d, data2d)
+    ndfdata.save("subex2016_dvl.ndf")
+else:
+    #corrections applied
 
-SP = gsw.SP_from_C(C*10, T, P*10)
-SA = gsw.SA_from_SP_Baltic(SP, lon, lat)
+    dbds = dbdreader.MultiDBD(pattern="/home/lucas/gliderdata/subex2016/hd/comet*.[de]bd")
+    tmp = dbds.get_sync("sci_ctd41cp_timestamp",
+                        "sci_water_cond sci_water_temp sci_water_pressure m_lat m_lon".split())
+    t, tctd, C, T, P, lat , lon = np.compress(tmp[2]>0, tmp, axis=1)
 
-ctd_data = (tctd, SA, P*10)
+    SP = gsw.SP_from_C(C*10, T, P*10)
+    SA = gsw.SA_from_SP_Baltic(SP, lon, lat)
 
-cnv = Pd0NDF()
-fns = cnv.read_files(pattern = "/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")
-config, data1d, data2d = cnv.read_data(fns, ctd_data)
-ndfdata = cnv.create_ndf(config, data1d, data2d)
-ndfdata.save("subex2016_dvl_corrected.ndf")
+    ctd_data = (tctd, SA, P*10)
+
+    cnv = Pd0NDF()
+    fns = cnv.read_files(pattern = "/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")
+    config, data1d, data2d = cnv.read_data(fns, ctd_data)
+    ndfdata = cnv.create_ndf(config, data1d, data2d)
+    ndfdata.save("subex2016_dvl_corrected.ndf")
 
 
 
