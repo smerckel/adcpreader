@@ -379,7 +379,7 @@ class Ensemble(object):
             bt[key] = self.get_word()*1e-2
         for k in range(n_beams):
             key = "BTVel{}".format(k+1)
-            bt[key] = self.get_word()*1e-3
+            bt[key] = self.get_short()*1e-3
         for k in range(n_beams):
             key = "Corr{}".format(k+1)
             bt[key] = self.get_byte()
@@ -394,7 +394,7 @@ class Ensemble(object):
         bt['ReflFar'] = self.get_word()*1e-1
         for k in range(n_beams):
             key = "ReflVel{}".format(k+1)
-            bt[key] = self.get_word()*1e-3
+            bt[key] = self.get_short()*1e-3
         for k in range(n_beams):
             key = "ReflCorr{}".format(k+1)
             bt[key] = self.get_byte()
