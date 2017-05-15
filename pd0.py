@@ -8,7 +8,8 @@ import numpy as np
 # So das ist jetzt anders
 
 # add filename=... to log to a file instead.
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.ERROR)
 
 ENSEMBLE_VARIABLES = """Ensnum RTC Ensmsb BITResult Soundspeed XdcrDepth
 Heading Pitch Roll Salin Temp MPT Hdg_SD Pitch_SD 
@@ -100,7 +101,7 @@ class Ensemble(object):
         n_beams = None
         for offset in self.data_offsets:
             block_id = self.get_word(offset)
-            if block_id == 0x00:
+            if block_id == 0x0000:
                 data['fixed_leader'] = self.decode_fixed_leader()
                 n_cells = data['fixed_leader']['N_Cells']
                 n_beams = data['fixed_leader']['N_Beams']
@@ -116,7 +117,7 @@ class Ensemble(object):
                 data['percent_good'] = self.decode_percent_good(n_cells, n_beams)
             elif block_id == 0x0600:
                 data['bottom_track'] = self.decode_bottom_track(n_beams)
-            elif block_id == 0x2202:
+            elif block_id == 0x2022:
                 data['nav']=None
                 logging.debug("Decoding nav: TODO")
             else:
@@ -426,18 +427,19 @@ class PD0(object):
 
 if __name__ == "__main__":    
     filename = "/home/lucas/gliderdata/tests/comet_ctd_noise/qc290849.pd0"
-    filename = "PF230519.PD0"
+    filename = 'C:/dev/adcp_bin/testfiles/wr2large.pd0' #"PF230519.PD0"
     
     pd0 = PD0()
-    data = pd0.read(filename)
-    idx = [i for i in pd0.ensemble_data_generator(data)]
-    ens = Ensemble(idx[0])
-    data = ens.decode()
-    
-    q=[i for i in pd0.ensemble_generator([filename])]
+    if 0:
+        data = pd0.read(filename)
+        idx = [i for i in pd0.ensemble_data_generator(data)]
+        ens = Ensemble(idx[10])
+        data = ens.decode()
+    ens=[i for i in pd0.ensemble_generator([filename])]
+Q    
+# test code to be moved somewhere else.
 
-
-    # test code to be moved somewhere else.
+if 0:
     if 0:
         import glob
         import timeconversion
@@ -471,7 +473,6 @@ if __name__ == "__main__":
         data.add_parameter("btz", "m/s", (t,BT[:,2].T))
         data.add_parameter("bterr", "m/s", (t,BT[:,3].T))
 
-    QQQQQQQQQQ
 
     def find_possible_ens(filename):
         # Find possible starts and check if they represent valid ensembles
