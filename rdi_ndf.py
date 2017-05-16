@@ -119,7 +119,7 @@ class Pd0NDF(object):
             data.add_parameter(ks, units[k], (tm, np.array(v)))
         for k, v in data2d.items():
             if k.startswith("v"):
-                ks=" ".join(["velocity",config[k.replace("v","Vel_field")]])
+                ks=" ".join(["Velocity",config[k.replace("v","Vel_field")]])
             elif k.startswith("e"):
                 ks = k.replace("e","EchoIntensity")
             elif k.startswith("pg"):
