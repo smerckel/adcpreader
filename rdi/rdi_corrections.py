@@ -1,10 +1,7 @@
-import numpy as np
-from scipy.interpolate import interp1d
 import datetime
 
+from scipy.interpolate import interp1d
 import gsw
-
-import pd0 as rdi
 
 
 class SpeedOfSoundCorrection(object):
@@ -22,7 +19,6 @@ class SpeedOfSoundCorrection(object):
         rtc[6]*=10000
         return datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
 
-        
     
     def horizontal_current_from_salinity_pressure(self, ensembles, t, SA, P):
         ''' Generator returning ensemble data with corrected HORIZONTAL currents
@@ -52,27 +48,4 @@ class SpeedOfSoundCorrection(object):
                     ens[k][_v]*=correction_factor
             yield ens
             
-
-
-if __name__ == "__main__":            
-    import dbdreader
-
-    dbds = dbdreader.MultiDBD(pattern="comet*.[de]bd")
-    tmp = dbds.get_sync("sci_ctd41cp_timestamp",
-                        "sci_water_cond sci_water_temp sci_water_pressure m_lat m_lon".split())
-    t, tctd, C, T, P, lat , lon = np.compress(tmp[2]>0, tmp, axis=1)
-
-    SP = gsw.SP_from_C(C*10, T, P*10)
-    SA = gsw.SA_from_SP_Baltic(SP, lon, lat)
-
-    pd0 = rdi.PD0()
-    c = SpeedOfSoundCorrection()
-
-
-    filename = "PF230519.PD0"
-    ensembles = pd0.ensemble_generator([filename])
-    sp_correction = c.horizontal_current_from_salinity_pressure(ensembles, tctd, SA, P*10)
-
-    data = [ens for ens in sp_correction]
-
 

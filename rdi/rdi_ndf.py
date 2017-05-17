@@ -4,22 +4,14 @@ import glob
 
 import numpy as np
 
-import gsw
-
-import dbdreader
 import ndf
-#from . import pd0 as rdi
-import pd0 as rdi
-#from . import rdi_corrections
-import rdi_corrections
 
-
+from . import rdi_reader
+from . import rdi_corrections
 
 
 def rad(x):
     return x*np.pi/180.
-
-rdi.Ensemble.ECHO_DB=0.61 # for glider DVL
 
 class Pd0NDF(object):
     YEAR = 2000
@@ -29,7 +21,7 @@ class Pd0NDF(object):
         return fns
 
     def read_config(self, fns):
-        pd0 = rdi.PD0()
+        pd0 = rdi_reader.PD0()
         for ens in pd0.ensemble_generator(fns):
             break
         config = ens['fixed_leader']
@@ -79,7 +71,7 @@ class Pd0NDF(object):
     def read_data(self, fns, ctd_data = None):
         data2d = defaultdict(lambda : [])
         data1d = defaultdict(lambda : [])
-        pd0 = rdi.PD0()
+        pd0 = rdi_reader.PD0()
         config = self.read_config(fns)
         ensembles = pd0.ensemble_generator(fns)
         if ctd_data:
@@ -133,33 +125,4 @@ class Pd0NDF(object):
             else:
                 data.add_global_parameter(k, v, units[k])
         return data
-
-
-if 1:    
-    # no correctionis applied:
-    cnv = Pd0NDF()
-    fns = cnv.read_files(pattern = "/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")
-    config, data1d, data2d = cnv.read_data(fns, ctd_data=None)
-    ndfdata = cnv.create_ndf(config, data1d, data2d)
-    ndfdata.save("subex2016_dvl.ndf")
-else:
-    #corrections applied
-
-    dbds = dbdreader.MultiDBD(pattern="/home/lucas/gliderdata/subex2016/hd/comet*.[de]bd")
-    tmp = dbds.get_sync("sci_ctd41cp_timestamp",
-                        "sci_water_cond sci_water_temp sci_water_pressure m_lat m_lon".split())
-    t, tctd, C, T, P, lat , lon = np.compress(tmp[2]>0, tmp, axis=1)
-
-    SP = gsw.SP_from_C(C*10, T, P*10)
-    SA = gsw.SA_from_SP_Baltic(SP, lon, lat)
-
-    ctd_data = (tctd, SA, P*10)
-
-    cnv = Pd0NDF()
-    fns = cnv.read_files(pattern = "/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")
-    config, data1d, data2d = cnv.read_data(fns, ctd_data)
-    ndfdata = cnv.create_ndf(config, data1d, data2d)
-    ndfdata.save("subex2016_dvl_corrected.ndf")
-
-
 

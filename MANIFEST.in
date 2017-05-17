@@ -1,0 +1,3 @@
+include data/*.PD0
+include examples/*.py
+includ rdi/*.py

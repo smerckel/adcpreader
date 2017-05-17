@@ -1,3 +1,32 @@
+'''
+
+A module to perform rotation transformations on
+
+* velocity vectors 1-4
+* bottom_track values 
+
+per ensemble
+
+Typical use is to set up an ensemble generator and a pipeline of transformations:
+
+
+    bindata = pd0.PD0()
+    ensembles = bindata.ensemble_generator(filenames)
+
+    t1 = TransformENU_FSU()
+    t2 = TransformFSU_XYZ(alpha=0, beta=0.1919, gamma=0)
+    t3 = TransformXYZ_FSU(alpha=0, beta=0.2239, gamma=0.05)
+
+    t4 = t3*t2*t1
+
+    ensembles = t4(ensembles)
+
+    for ens in ensembles:
+          :
+          :
+'''
+
+
 import numpy as np
 
 class RotationMatrix(object):
@@ -32,11 +61,16 @@ class Transform(object):
 
     def __init__(self, inverse = False):
         self.inverse = inverse
+        #self.transformed_coordinate_system = None
 
+    def __call__(self,ensembles):
+        return self.gen(ensembles)
+    
     def __mul__(self, ri):
         ''' Creates a create_rotation_matrix() method from the left and right arguments of the * operator. '''
         T = Transform()
         T.create_rotation_matrix = lambda *x: self.create_rotation_matrix(*x)*ri.create_rotation_matrix(*x)
+        T.transformed_coordinate_system = self.transformed_coordinate_system
         return T
 
         
@@ -49,6 +83,7 @@ class Transform(object):
         gamma = ens['variable_leader']['Roll']*np.pi/180.
         R = self.create_rotation_matrix(alpha, beta, gamma)
         self.__transform_velocities_in_ensemble(ens, R)
+        self.update_coordinate_frame_setting(ens)
         
     def __transform_velocities_in_ensemble(self, ens, R):
         for k, v in self.PARAMS.items():
@@ -62,7 +97,13 @@ class Transform(object):
                     xp = np.array(R * x)
                     for i in range(4):
                         ens[k]['%s%d'%(_v, i+1)] = xp[i]
-        
+
+    def update_coordinate_frame_setting(self, ens):
+        ''' Writes the new coordinate frame setting and records the original setting. '''
+        if self.transformed_coordinate_system:
+            ens['fixed_leader']['OriginalCoordXfrm'] = ens['fixed_leader']['CoordXfrm']
+            ens['fixed_leader']['CoordXfrm'] = self.transformed_coordinate_system
+
     def gen(self, ensembles):
         ''' generator yielding transformed ensembles.'''
         for ens in ensembles:
@@ -73,7 +114,11 @@ class TransformFSU_ENU(Transform):
     def __init__(self, inverse = False):
         super().__init__(inverse)
         self.static = False
-    
+        if inverse:
+            self.transformed_coordinate_system = 'Ship'
+        else:
+            self.transformed_coordinate_system = 'Earth'
+
     def create_rotation_matrix(self, alpha, beta, gamma):
         R = RotationMatrix()
         if self.inverse:
@@ -88,8 +133,11 @@ class TransformXYZ_FSU(Transform):
         R = RotationMatrix()
         if self.inverse:
             self.R = R(alpha, beta, gamma).T
+            self.transformed_coordinate_system = 'Instrument'
         else:
             self.R = R(alpha, beta, gamma)
+            self.transformed_coordinate_system = 'Ship'
+            
     def create_rotation_matrix(self, *p):
         return self.R
 
@@ -98,41 +146,12 @@ class TransformFSU_XYZ(TransformXYZ_FSU):
     def __init__(self, alpha, beta, gamma, inverse = False):
         super().__init__(alpha, beta, gamma, not inverse)
 
+
 class TransformENU_FSU(TransformFSU_ENU):
     ''' Transformation of FSU to XYZ using the angles set to transform from XYZ to FSU '''
     def __init__(self, inverse = False):
         super().__init__(not inverse)
+
         
     
 
-if __name__ == "__main__":
-    filename = "PF230519.PD0"
-
-    import pd0
-    import glob
-
-    filenames = glob.glob("/home/lucas/gliderdata/subex2016/adcp/PF*.PD0")
-    filenames.sort()
-
-    bindata = pd0.PD0()
-    ensembles = bindata.ensemble_generator(filenames)
-
-
-    #t1 = TransformFSU_ENU(inverse=True)
-    #t2 = TransformXYZ_FSU(alpha=0, beta=0.1919, gamma=0, inverse=True)
-    
-    t1 = TransformENU_FSU()
-    t2 = TransformFSU_XYZ(alpha=0, beta=0.1919, gamma=0)
-    t3 = TransformXYZ_FSU(alpha=0, beta=0.2239, gamma=0.05)
-
-    t4 = t3*t2*t1
-
-    ensembles = t4.gen(ensembles)
-
-    _v = []
-    for i,ens in enumerate(ensembles):
-        _v.append([ens['velocity']['Velocity%d'%(i+1)][0] for i in range(3)])
-        if i==2000:
-            break
-
-    vx,vy,vz = np.array(_v).T
