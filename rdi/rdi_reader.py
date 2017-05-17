@@ -5,6 +5,7 @@ import logging
 
 import numpy as np
 
+from rdi import __VERSION__
 # So das ist jetzt anders
 
 # add filename=... to log to a file instead.

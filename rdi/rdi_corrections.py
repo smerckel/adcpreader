@@ -3,6 +3,7 @@ import datetime
 from scipy.interpolate import interp1d
 import gsw
 
+from rdi import __VERSION__
 
 class SpeedOfSoundCorrection(object):
     Vhor = dict(velocity=['Velocity1', 'Velocity2'],
@@ -39,9 +40,9 @@ class SpeedOfSoundCorrection(object):
             temp = ens['variable_leader']['Temp']
             sound_speed_0 = ens['variable_leader']['Soundspeed']
             tm = self.get_ensemble_timestamp(ens)
-            SAi = ifun_SA(tm)
-            Pi = ifun_P(tm)
-            sound_speed, = gsw.sound_speed_t_exact(SAi, temp, Pi)
+            SAi = float(ifun_SA(tm))
+            Pi = float(ifun_P(tm))
+            sound_speed = gsw.sound_speed_t_exact(SAi, temp, Pi)
             correction_factor = sound_speed/sound_speed_0
             for k, v in self.Vhor.items():
                 for _v in v:

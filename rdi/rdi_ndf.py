@@ -6,6 +6,7 @@ import numpy as np
 
 import ndf
 
+from rdi import __VERSION__
 from . import rdi_reader
 from . import rdi_corrections
 

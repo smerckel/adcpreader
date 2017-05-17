@@ -29,6 +29,7 @@ Typical use is to set up an ensemble generator and a pipeline of transformations
 
 import numpy as np
 
+from rdi import __VERSION__
 class RotationMatrix(object):
     ''' A rotation matrix class as defined in the RDI manual '''
     def create_matrix(self, heading, pitch, roll):
