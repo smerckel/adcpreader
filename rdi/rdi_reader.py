@@ -80,6 +80,7 @@ VARIABLE_DEFS=dict(byte=(1,'B'), word=(2,'H'), short=(2,'h'), uint = (4,'I'))
 
 
 
+
 class Ensemble(object):
     '''
     class to hold and decode a binary data block containing a single ping.
