@@ -2,6 +2,7 @@ from collections import defaultdict
 import datetime
 import glob
 import os
+import sys
 
 import numpy as np
 
@@ -139,23 +140,10 @@ def rad(x):
 
 
 
-class NDFWriter(object):
+class Writer(object):
     YEAR = 2000
     def __init__(self):
         self.output_filename = None
-        self._global_parameters = dict()
-        
-    def set_filename_from_pd0(self, filename_pd0,annotation=None):
-        fn_base, fn_ext = os.path.splitext(filename_pd0)
-        if annotation:
-            self.output_filename =  "{}-{}.ndf".format(fn_base,annotation)
-        else:
-            self.output_filename =  "{}.ndf".format(fn_base)
-
-        
-    def add_global_parameter(self, key, value, unit):
-        self._global_parameters[key] = value, unit
-        
     
     def write_ensembles(self, ensembles):
         config = None
@@ -168,8 +156,7 @@ class NDFWriter(object):
             self.read_variable_leader(data1d,ens['variable_leader'])
             self.read_onedimdata(data1d, ens)
             self.read_twodimdata(data2d, ens)
-        data = self.create_ndf(config, data1d, data2d)
-        data.save(self.output_filename)
+        self.write_to_file(config, data1d, data2d)
 
     def read_variable_leader(self, data, vld):
         rtc = list(vld['RTC'])
@@ -240,7 +227,79 @@ class NDFWriter(object):
         else:
             return np.array(v)
 
+    def write_to_file(self, config, data1d, data2d):
+        raise NotImplementedError("This method is not implemented. Subclass this method...")
+
+
+    
+class AsciiWriter(Writer):
+    DESCRIPTIONS = {"Earth":"Eastward current-Northward current-Upward current-Error velocity".split("-"),
+                    "Beam" :"Beam 1-Beam 2-Beam 3-Beam 4".split("-")}
+                    
+    def __init__(self, filename = sys.stdout, adcp_offset=0):
+        super().__init__()
+        self.comment = "#"
+        self.adcp_offset = adcp_offset
+        self.output_filename = filename
         
+        
+    def write_configuration(self, config, fd=sys.stdout):
+        kws = "Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm OriginalCoordXfrm WaterMode FirstBin SystemSerialNumber".split()
+        fd.write("{}Configuration:\n".format(self.comment))
+        for kw in kws:
+            fd.write("{}{} : {}\n".format(self.comment, kw, config[kw]))
+        fd.write("{}\n".format(self.comment))
+                     
+                 
+    def write_array(self, config, data1d, data2d, fd=sys.stdout):
+        binsize = config['DepthCellSize']
+        firstbin = config['FirstBin']
+        factor = (int(config['Xdcr_Facing']=='Up')*2-1)
+        ustr, vstr, wstr, verrstr = AsciiWriter.DESCRIPTIONS[config['CoordXfrm']]
+        fd.write("{}{:19s}{:<20s}{:<20s}{:<20s}{:<20s}{:<20s}\n".format(self.comment, "Time", "Elevation", ustr, vstr, wstr, verrstr))
+        fd.write("{}{:19s}{:<20s}{:<20s}{:<20s}{:<20s}{:<20s}\n".format(self.comment, "Date/Time", "m", "m/s", "m/s", "m/s", "m/s"))
+        fd.write("{}\n".format(self.comment))
+
+                 
+        for t, u, v, w, verr in zip(data1d['Time'], data2d['v1'], data2d['v2'], data2d['v3'], data2d['v4']):
+            dt = datetime.datetime.utcfromtimestamp(t)
+            tstr = dt.strftime("%Y-%m-%dT%H:%M:%S")
+            for i, (_u, _v, _w, _verr) in enumerate(zip(u, v, w, verr)):
+                r = firstbin + i*binsize
+                z= factor*r + self.adcp_offset
+                try:
+                    fd.write("{:20s}{:< 20.3f}{:< 20.3f}{:< 20.3f}{:< 20.3f}{:< 20.3f}\n".format(tstr, z, _u, _v, _w, _v))
+                except TypeError:
+                    pass
+                    
+    def write_to_file(self, config, data1d, data2d):
+        with open(self.output_filename, 'w') as fd:
+            self.write_configuration(config, fd)
+            self.write_array(config, data1d, data2d, fd)
+
+        
+class NDFWriter(Writer):
+    def __init__(self):
+        super().__init__()
+        self._global_parameters = dict()
+        
+    def write_to_file(self,config, data1d, data2d):
+        data = self.create_ndf(config, data1d, data2d)
+        data.save(self.output_filename)
+
+
+    def set_filename_from_pd0(self, filename_pd0,annotation=None):
+        fn_base, fn_ext = os.path.splitext(filename_pd0)
+        if annotation:
+            self.output_filename =  "{}-{}.ndf".format(fn_base,annotation)
+        else:
+            self.output_filename =  "{}.ndf".format(fn_base)
+
+        
+    def add_global_parameter(self, key, value, unit):
+        self._global_parameters[key] = value, unit
+        
+    
     def create_ndf(self, config, data1d, data2d):
         units=defaultdict(lambda : '-', Soundspeed='m/s', Temperature='degree', Depth='m',
                           v1='m/s',v2='m/s',v3='m/s',v4='m/s',
