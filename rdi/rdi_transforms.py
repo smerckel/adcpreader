@@ -14,8 +14,8 @@ Typical use is to set up an ensemble generator and a pipeline of transformations
     ensembles = bindata.ensemble_generator(filenames)
 
     t1 = TransformENU_FSU()
-    t2 = TransformFSU_XYZ(alpha=0, beta=0.1919, gamma=0)
-    t3 = TransformXYZ_FSU(alpha=0, beta=0.2239, gamma=0.05)
+    t2 = TransformFSU_XYZ(hdg=0, pitch=0.1919, roll=0)
+    t3 = TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
 
     t4 = t3*t2*t1
 
@@ -26,10 +26,17 @@ Typical use is to set up an ensemble generator and a pipeline of transformations
           :
 '''
 
+from collections import namedtuple
+from itertools import chain
 
 import numpy as np
 
 from rdi import __VERSION__
+
+Attitude = namedtuple('Attitude', 'hdg pitch roll')
+Beamconfig = namedtuple('Beamconfig', 'a b c d facing')
+
+
 class RotationMatrix(object):
     ''' A rotation matrix class as defined in the RDI manual '''
     def create_matrix(self, heading, pitch, roll):
@@ -49,6 +56,20 @@ class RotationMatrix(object):
         return self.create_matrix(heading, pitch, roll)
 
 
+    
+class TransformMatrix(object):
+    def create_matrix(self, a, b, c, d):
+        M = np.matrix([[c*a, -c*a, 0, 0],
+                       [0  ,    0, -c*a, c*a],
+                       [b  ,    b,    b,   b],
+                       [d  ,    d,   -d,  -d]])
+        return M
+    
+    def __call__(self, a, b, c, d):
+        return self.create_matrix(a, b, c, d)
+
+
+    
 class Transform(object):
     ''' Base transform class.
 
@@ -59,36 +80,85 @@ class Transform(object):
     # which parameters should be transformed
     PARAMS = dict(velocity = ['Velocity'],
                   bottom_track = ['BTVel'])
-
+    CACHE = {}
+    
     def __init__(self, inverse = False):
         self.inverse = inverse
-        #self.transformed_coordinate_system = None
-
+        self.hooks = {}
+        
     def __call__(self,ensembles):
         return self.gen(ensembles)
     
     def __mul__(self, ri):
-        ''' Creates a create_rotation_matrix() method from the left and right arguments of the * operator. '''
+        ''' Creates a create_transformation_matrix() method from the left and right arguments of the * operator. '''
         T = Transform()
-        T.create_rotation_matrix = lambda *x: self.create_rotation_matrix(*x)*ri.create_rotation_matrix(*x)
+        T.create_transformation_matrix = lambda *x: self.create_transformation_matrix(*x) * ri.create_transformation_matrix(*x)
         T.transformed_coordinate_system = self.transformed_coordinate_system
+        T.hooks = dict((k,v) for k,v in chain(ri.hooks.items(), self.hooks.items()))
         return T
 
-        
+    def attitude_correction(self, hdg, ptch, roll):
+        ''' Corrects the heading, pitch and roll using a callable with key "attitude_correction" in self.hooks'''
+        try:
+            f = self.hooks['attitude_correction']
+        except KeyError:
+            return hdg, ptch, roll
+        else:
+        #    print(hdg, ptch, roll, end=" ")
+        #    print(*f(hdg, ptch, roll))
+            return f(hdg, ptch, roll)
+
+    def get_beam_configuration(self, ens):
+        try:
+            a, b, c, d, facing = self.CACHE['beamconfig']
+        except KeyError:
+            fixed_leader = ens['fixed_leader']
+            beam_angle, _ = fixed_leader['Beam_Angle'].split()
+            beam_pattern = fixed_leader['Beam_Pattern']
+            facing = fixed_leader['Xdcr_Facing']
+            theta = float(beam_angle)*np.pi/180.
+            a = 1/(2*np.sin(theta))
+            b = 1/(4*np.cos(theta))
+            c = int(beam_pattern=='Convex')*2-1
+            d = a/np.sqrt(2)
+            self.CACHE['beamconfig'] = a, b, c, d, facing
+        return a, b, c, d, facing
+    
+    def get_params(self, ens):
+        try:
+            params = self.CACHE['params']
+        except KeyError:
+            ensemble_keys = list(ens.keys())
+            params = dict([(k,v) for k, v in Transform.PARAMS.items() if k in ensemble_keys])
+            self.CACHE['params'] = params
+        return params
+    
     def transform_velocities_in_ensemble(self, ens):
-        ''' Transforms the velocities in given ensemble. Depending on the rotation matrix, the
-            heading/pitch/roll information may or may not be used.
+        ''' Transforms the velocities in given ensemble. 
         '''
-        alpha = ens['variable_leader']['Heading']*np.pi/180.
-        beta = ens['variable_leader']['Pitch']*np.pi/180.
-        gamma = ens['variable_leader']['Roll']*np.pi/180.
-        R = self.create_rotation_matrix(alpha, beta, gamma)
-        self.__transform_velocities_in_ensemble(ens, R)
+        hdg = ens['variable_leader']['Heading']*np.pi/180.
+        pitch = ens['variable_leader']['Pitch']*np.pi/180.
+        roll = ens['variable_leader']['Roll']*np.pi/180.
+        hdg, pitch, roll = self.attitude_correction(hdg, pitch, roll)
+        attitude = Attitude(hdg, pitch, roll)
+
+        a,b,c,d, facing = self.get_beam_configuration(ens)
+        beamconfig = Beamconfig(a, b,c,d, facing)
+
+        R = self.create_transformation_matrix(attitude, beamconfig)
+        params = self.get_params(ens)
+        self.__transform_velocities_in_ensemble(ens, R, params)
         self.update_coordinate_frame_setting(ens)
         
-    def __transform_velocities_in_ensemble(self, ens, R):
-        for k, v in self.PARAMS.items():
+    def __transform_velocities_in_ensemble(self, ens, R, params):
+        for k, v in params.items():
+
             for _v in v:
+                # make a note of the mask of this variable, if any.
+                try:
+                    mask = ens[k]['%s%d'%(_v,1)].mask
+                except AttributeError:
+                    mask = None
                 x = np.matrix([ens[k]['%s%d'%(_v,i+1)] for i in range(4)])
                 if x.shape[0] == 1: # for bottom track values
                     xp = np.array(R * x.T)
@@ -97,8 +167,11 @@ class Transform(object):
                 else:
                     xp = np.array(R * x)
                     for i in range(4):
-                        ens[k]['%s%d'%(_v, i+1)] = xp[i]
-
+                        if mask is None: 
+                            ens[k]['%s%d'%(_v, i+1)] = xp[i]                            
+                        else: #apply the mask again
+                            ens[k]['%s%d'%(_v, i+1)] = np.ma.masked_array(xp[i], mask)
+                            
     def update_coordinate_frame_setting(self, ens):
         ''' Writes the new coordinate frame setting and records the original setting. '''
         if self.transformed_coordinate_system:
@@ -114,45 +187,108 @@ class Transform(object):
 class TransformFSU_ENU(Transform):
     def __init__(self, inverse = False):
         super().__init__(inverse)
-        self.static = False
         if inverse:
             self.transformed_coordinate_system = 'Ship'
         else:
             self.transformed_coordinate_system = 'Earth'
 
-    def create_rotation_matrix(self, alpha, beta, gamma):
+    def create_transformation_matrix(self, attitude, beamconfig):
         R = RotationMatrix()
         if self.inverse:
-            return R(alpha, beta, gamma).T
+            return R(attitude.hdg, attitude.pitch, attitude.roll).T
         else:
-            return R(alpha, beta, gamma)
+            return R(attitude.hdg, attitude.pitch, attitude.roll)
 
-class TransformXYZ_FSU(Transform):
-    def __init__(self, alpha, beta, gamma, inverse = False):
+class TransformXYZ_ENU(Transform):
+    def __init__(self, inverse = False):
         super().__init__(inverse)
-        self.static = True
-        R = RotationMatrix()
-        if self.inverse:
-            self.R = R(alpha, beta, gamma).T
+        if inverse:
             self.transformed_coordinate_system = 'Instrument'
         else:
-            self.R = R(alpha, beta, gamma)
-            self.transformed_coordinate_system = 'Ship'
+            self.transformed_coordinate_system = 'Earth'
+
+    def create_transformation_matrix(self, attitude, beamconfig):
+        R = RotationMatrix()
+        if self.inverse:
+            return R(attitude.hdg, attitude.pitch, attitude.roll).T
+        else:
+            return R(attitude.hdg, attitude.pitch, attitude.roll)
+
+
+class TransformRotation(Transform):
+    def __init__(self, hdg, pitch, roll, transformed_coordinate_system='undefined'):
+        inverse = False
+        super().__init__(inverse)
+        R = RotationMatrix()
+        self.R = R(hdg, pitch, roll)
+        self.transformed_coordinate_system = transformed_coordinate_system
             
-    def create_rotation_matrix(self, *p):
+    def create_transformation_matrix(self, *p):
         return self.R
+
+class TransformBEAM_XYZ(Transform):
+    def __init__(self,inverse = False):
+        super().__init__(inverse)
+        if self.inverse:
+            self.transformed_coordinate_system = 'Beam'
+        else:
+            self.transformed_coordinate_system = 'Instrument'
+        
+    def create_transformation_matrix(self, attitude, beamconfig):
+        try:
+            return self.R
+        except AttributeError:
+            R = TransformMatrix()
+            self.R = R(beamconfig.a, beamconfig.b, beamconfig.c, beamconfig.d)
+            if self.inverse:
+                self.R = np.linalg.inv(self.R) # Transpose is not okay for non-rotational matrices.
+            return self.R
+        
+class TransformXYZ_FSU(Transform):
+    def __init__(self, hdg, pitch, roll, inverse = False):
+        super().__init__(inverse)
+        self.attitude = Attitude(hdg, pitch, roll)
+        if self.inverse:
+            self.transformed_coordinate_system = 'Instrument'
+        else:
+            self.transformed_coordinate_system = 'Ship'
+                
+    def create_transformation_matrix(self, attitude, beamconfig):
+        try:
+            return self.R
+        except AttributeError:
+            R = RotationMatrix()
+            hdg, pitch, roll = self.attitude
+            if beamconfig.facing == 'Up': # if upward looking, rotate 180 over S-axis 
+                roll+=np.pi
+            if self.inverse:
+                self.R = R(hdg, pitch, roll).T
+            else:
+                self.R = R(hdg, pitch, roll)
+            return self.R
 
 class TransformFSU_XYZ(TransformXYZ_FSU):
     ''' Transformation of FSU to XYZ using the angles set to transform from XYZ to FSU '''
-    def __init__(self, alpha, beta, gamma, inverse = False):
-        super().__init__(alpha, beta, gamma, not inverse)
+    def __init__(self, hdg, pitch, roll, inverse = False):
+        super().__init__(hdg, pitch, roll, not inverse)
 
 
 class TransformENU_FSU(TransformFSU_ENU):
-    ''' Transformation of FSU to XYZ using the angles set to transform from XYZ to FSU '''
+    ''' Transformation of ENU to FSU using the angles set to transform from FSU to ENU '''
     def __init__(self, inverse = False):
         super().__init__(not inverse)
 
         
+class TransformENU_XYZ(TransformXYZ_ENU):
+    ''' Transformation of ENU to XYZ using the angles set to transform from XYZ to ENU '''
+    def __init__(self, inverse = False):
+        super().__init__(not inverse)
+        
+
+class TransformXYZ_BEAM(TransformBEAM_XYZ):
+    ''' Transformation of XYZ to BEAM using the values set to transform from BEAM to XYZ'''
+    def __init__(self, inverse = False):
+        super().__init__(not inverse)
+    
     
 
