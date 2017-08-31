@@ -49,7 +49,7 @@ HRI["Beam_Angle"]   = 0,2, '15 Degree|20 Degree|30 Degree|Not given'.split("|")
 HRI["Beam_Cfg"]     = 4,4, 'x|x|x|x|4 Beam Janus|5 Beam Janus w/ Demod|x|x|x|x|x|x|x|x|x|5 Beam Janus w/ 2 Demod'.split("|")
 HRI["Real_Data"]    = 0,1, ('True', 'False')
 HRI["CoordXfrm"]    = 3,2, 'Beam|Instrument|Ship|Earth'.split("|")
-HRI["Vel_field1"]   = 3,2, 'To Beam 1|Beam 1 - 2|To Stdbd|East'.split("|")
+HRI["Vel_field1"]   = 3,2, 'To Beam 1|Beam 1 - 2|To Stbd|East'.split("|")
 HRI["Vel_field2"]   = 3,2, 'To Beam 2|Beam 4 - 3|To Aft|North'.split("|")
 HRI["Vel_field3"]   = 3,2, 'To Beam 3|To Xdcr|Up|Up'.split("|")
 HRI["Vel_field4"]   = 3,2, 'To Beam 4|Error|Error|Error'.split("|")
@@ -471,12 +471,16 @@ class PD0(object):
             idx_next = idx + checksum_offset + SIZE_CHECKSUM
             yield data[idx:idx_next]
 
-    def ensemble_generator(self, filenames):
-        ''' Generator returnining binary data per ensemble for list of filenames
+    def ensemble_generator(self, f):
+        ''' Generator returnining binary data per ensemble for a filename or list of filenames
         
-        Input: list of file names:
+        Input: filename or list of file names:
         Output: decoded ensemble.
         '''
+        if isinstance(f, str):
+            filenames = [f]
+        else:
+            filenames= list(f)
         for fn in filenames:
             data = self.read(fn)
             for chunk in self.ensemble_data_generator(data):
