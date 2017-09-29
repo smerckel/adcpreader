@@ -1,7 +1,7 @@
 import numpy as np
 import gsw
 
-import rdi.rdi_ndf as rdi_ndf
+import rdi.rdi_writer as rdi_ndf
 import dbdreader
 import ndf
 
