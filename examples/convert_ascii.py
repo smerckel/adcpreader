@@ -20,15 +20,16 @@ t3 = rdi_transforms.TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
 # Set up the transformation pipeline. Note the order!
 t4 = t3*t2*t1
 
-writer = rdi_writer.AsciiWriter(filename = 'test.ascii')
+# write to a file
+#writer = rdi_writer.AsciiWriter(filename = 'test.ascii')
+#
+#or to stdout
+#
+writer = rdi_writer.AsciiWriter()
 
+#now do the job...
 ensembles = bindata.ensemble_generator(filenames)
 ensembles = t4(ensembles)
 writer.write_ensembles(ensembles)
 
 
-# read and process the ensembles
-_v = []
-for i,ens in enumerate(ensembles):
-    _v.append([ens['velocity']['Velocity%d'%(i+1)][0] for i in range(3)])
-vx,vy,vz = np.array(_v).T

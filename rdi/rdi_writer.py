@@ -9,8 +9,6 @@ import numpy as np
 import ndf
 
 from rdi import __VERSION__
-from . import rdi_reader
-from . import rdi_corrections
 
 TransformationTranslations = dict(Earth = 'east north up error'.split(),
                                   Ship = 'starboard forward up error'.split(),
@@ -143,20 +141,31 @@ def rad(x):
 class Writer(object):
     YEAR = 2000
     def __init__(self):
-        self.output_filename = None
-    
+        self.output_file = None
+
     def write_ensembles(self, ensembles):
+        try:
+            with open(self.output_file, 'w') as fd:
+                self.__write_ensembles(fd, ensembles)
+        except TypeError:
+            self.__write_ensembles(self.output_file, ensembles)
+            
+    def __write_ensembles(self, fd, ensembles):
         config = None
         data1d = defaultdict(lambda : [])
         data2d = defaultdict(lambda : [])
-        
         for ens in ensembles:
             if not config:
                 config = ens['fixed_leader']
+                self.write_configuration(config, fd)
+                self.write_header(config, fd)
             self.read_variable_leader(data1d,ens['variable_leader'])
             self.read_onedimdata(data1d, ens)
             self.read_twodimdata(data2d, ens)
-        self.write_to_file(config, data1d, data2d)
+            self.write_array(config, data1d, data2d, fd)
+            data1d.clear()
+            data2d.clear()
+        
 
     def read_variable_leader(self, data, vld):
         rtc = list(vld['RTC'])
@@ -234,15 +243,26 @@ class Writer(object):
     
 class AsciiWriter(Writer):
     DESCRIPTIONS = {"Earth":"Eastward current-Northward current-Upward current-Error velocity".split("-"),
-                    "Beam" :"Beam 1-Beam 2-Beam 3-Beam 4".split("-")}
+                    "Beam" :"Beam 1-Beam 2-Beam 3-Beam 4".split("-"),
+                    "Ship" :"Starboardward current-Forward current-Upward current- Error velocity".split("-"),
+                    "Instrument": "Current in x direction-Current in y direction-Current in z direction-error velocity".split("-")}
                     
-    def __init__(self, filename = sys.stdout, adcp_offset=0):
+    def __init__(self, output_file = sys.stdout, adcp_offset=0):
+        '''AsciiWriter
+        
+        Parameters:
+        -----------
+        output_file: a file pointer of filename (default sys.stdout)
+        adco_offset: the distance in m that the profile data should be offset by
+
+        '''
+        
         super().__init__()
         self.comment = "#"
         self.adcp_offset = adcp_offset
-        self.output_filename = filename
+        self.output_file = output_file
         
-        
+  
     def write_configuration(self, config, fd=sys.stdout):
         kws = "Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm OriginalCoordXfrm WaterMode FirstBin SystemSerialNumber".split()
         fd.write("{}Configuration:\n".format(self.comment))
@@ -250,17 +270,16 @@ class AsciiWriter(Writer):
             fd.write("{}{} : {}\n".format(self.comment, kw, config[kw]))
         fd.write("{}\n".format(self.comment))
                      
-                 
-    def write_array(self, config, data1d, data2d, fd=sys.stdout):
-        binsize = config['DepthCellSize']
-        firstbin = config['FirstBin']
-        factor = (int(config['Xdcr_Facing']=='Up')*2-1)
+    def write_header(self, config, fd=sys.stdout):
         ustr, vstr, wstr, verrstr = AsciiWriter.DESCRIPTIONS[config['CoordXfrm']]
         fd.write("{}{:19s}{:<20s}{:<20s}{:<20s}{:<20s}{:<20s}\n".format(self.comment, "Time", "Elevation", ustr, vstr, wstr, verrstr))
         fd.write("{}{:19s}{:<20s}{:<20s}{:<20s}{:<20s}{:<20s}\n".format(self.comment, "Date/Time", "m", "m/s", "m/s", "m/s", "m/s"))
         fd.write("{}\n".format(self.comment))
-
-                 
+        
+    def write_array(self, config, data1d, data2d, fd=sys.stdout):
+        firstbin = config['FirstBin']
+        binsize = config['DepthCellSize']
+        factor = (int(config['Xdcr_Facing']=='Up')*2-1)
         for t, u, v, w, verr in zip(data1d['Time'], data2d['v1'], data2d['v2'], data2d['v3'], data2d['v4']):
             dt = datetime.datetime.utcfromtimestamp(t)
             tstr = dt.strftime("%Y-%m-%dT%H:%M:%S")
@@ -272,28 +291,40 @@ class AsciiWriter(Writer):
                 except TypeError:
                     pass
                     
-    def write_to_file(self, config, data1d, data2d):
-        with open(self.output_filename, 'w') as fd:
-            self.write_configuration(config, fd)
-            self.write_array(config, data1d, data2d, fd)
 
         
 class NDFWriter(Writer):
     def __init__(self):
         super().__init__()
         self._global_parameters = dict()
+
+    def write_ensembles(self, ensembles):
+        ''' a non-lazy implementation. This reads all the data into memory because of
+            how ndf files are written. NDF files cannot be written from generators.
+        '''
+        config = None
+        data1d = defaultdict(lambda : [])
+        data2d = defaultdict(lambda : [])
         
+        for ens in ensembles:
+            if not config:
+                config = ens['fixed_leader']
+            self.read_variable_leader(data1d,ens['variable_leader'])
+            self.read_onedimdata(data1d, ens)
+            self.read_twodimdata(data2d, ens)
+        self.write_to_file(config, data1d, data2d)
+
     def write_to_file(self,config, data1d, data2d):
         data = self.create_ndf(config, data1d, data2d)
-        data.save(self.output_filename)
+        data.save(self.output_file)
 
 
     def set_filename_from_pd0(self, filename_pd0,annotation=None):
         fn_base, fn_ext = os.path.splitext(filename_pd0)
         if annotation:
-            self.output_filename =  "{}-{}.ndf".format(fn_base,annotation)
+            self.output_file =  "{}-{}.ndf".format(fn_base,annotation)
         else:
-            self.output_filename =  "{}.ndf".format(fn_base)
+            self.output_file =  "{}.ndf".format(fn_base)
 
         
     def add_global_parameter(self, key, value, unit):
