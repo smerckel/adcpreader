@@ -171,7 +171,7 @@ class Writer(object):
         rtc = list(vld['RTC'])
         rtc[0]+=self.YEAR
         rtc[6]*=1000
-        tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
+        tm = datetime.datetime(*rtc, tzinfo=datetime.timezone.utc).timestamp()
         data['Ens'].append(vld['Ensnum'])
         data['Time'].append(tm)
         data['Soundspeed'].append(vld['Soundspeed'])

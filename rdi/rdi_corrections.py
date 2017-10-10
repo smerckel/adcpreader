@@ -13,7 +13,7 @@ def get_ensemble_timestamp(ens, century=2000):
     rtc = list(ens['variable_leader']['RTC'])
     rtc[0]+=century
     rtc[6]*=10000
-    tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
+    tm = datetime.datetime(*rtc, tzinfo=datetime.timezone.utc).timestamp()
     if tm<1e9:
         Q
     return tm
