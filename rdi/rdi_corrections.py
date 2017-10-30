@@ -13,7 +13,7 @@ def get_ensemble_timestamp(ens, century=2000):
     rtc = list(ens['variable_leader']['RTC'])
     rtc[0]+=century
     rtc[6]*=10000
-    tm = datetime.datetime(*rtc, tzinfo=datetime.timezone.utc).timestamp()
+    tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
     if tm<1e9:
         Q
     return tm
@@ -24,9 +24,8 @@ class SpeedOfSoundCorrection(object):
     Vhor = dict(velocity=['Velocity1', 'Velocity2'],
                 bottom_track=['BTVel1', 'BTVel2', 'BTVel3'])
            
-    def __init__(self, time_skew_threshold = None, RTC_year_base=2000):
+    def __init__(self, RTC_year_base=2000):
         self.RTC_year_base = RTC_year_base
-        self.time_skew_threshold = time_skew_threshold
 
     def get_ensemble_timestamp(self, ens):
         ''' returns timestamp in UTC in unix time (s)'''
