@@ -42,3 +42,29 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+
+
+Examples of RST
+---------------
+   
++--------+----------+------+
+| nombre | apellido | edad |
++========+==========+======+
+| pepe   | zarate   | 28   |
++--------+----------+------+
+| toto   | garcia   | 29   |
++--------+----------+------+
+
+.. math::
+
+   \frac{ \sum_{t=0}^{N}f(t,k) }{N}
+
+
+   
+:math:`\frac{ \sum_{t=0}^{N}f(t,k) }{N}`
+
+
+
+
+  
