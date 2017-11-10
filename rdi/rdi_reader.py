@@ -8,7 +8,7 @@ import numpy as np
 from rdi import __VERSION__
 
 # add filename=... to log to a file instead.
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 ENSEMBLE_VARIABLES = """Ensnum RTC Ensmsb BITResult Soundspeed XdcrDepth
 Heading Pitch Roll Salin Temp MPT Hdg_SD Pitch_SD 
