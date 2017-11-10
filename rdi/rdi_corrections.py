@@ -15,15 +15,18 @@ def get_ensemble_timestamp(ens, century=2000):
     rtc[6]*=10000
     tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
     if tm<1e9:
-        Q
+        raise ValueError('Wrong time stamp. Aborting.')
     return tm
 
 
 
 class SpeedOfSoundCorrection(object):
     Vhor = dict(velocity=['Velocity1', 'Velocity2'],
-                bottom_track=['BTVel1', 'BTVel2', 'BTVel3'])
-           
+                bottom_track=['BTVel1', 'BTVel2'])
+
+    V3D = dict(velocity=['Velocity1', 'Velocity2', 'Velocity3'],
+               bottom_track=['BTVel1', 'BTVel2', 'BTVel3'])
+
     def __init__(self, RTC_year_base=2000):
         self.RTC_year_base = RTC_year_base
 
@@ -82,6 +85,31 @@ class SpeedOfSoundCorrection(object):
                     ens[k][_v]*=correction_factor
             yield ens
 
+    def current_correction_at_transducer_from_salinity(self, ensembles, absolute_salinity):
+        ''' Current correction generator.
+        
+        Generator returning ensemble data with corrected currents using 
+        a prescribed salinity
+
+        Parameters:
+        -----------
+        ensembles:  list of ensembles or ensemble generator
+        absolute_salinity: float
+                 absolute salinity that is expected at the transducer head.
+        '''
+
+        for ens in ensembles:
+            temp = ens['variable_leader']['Temp']
+            press = ens['variable_leader']['Press']/1e5*10 # from Pa to dbar
+            sound_speed_0 = ens['variable_leader']['Soundspeed']
+            sound_speed = gsw.sound_speed_t_exact(absolute_salinity, temp, press)
+            correction_factor = sound_speed/sound_speed_0
+            for k, v in self.V3D.items():
+                for _v in v:
+                    ens[k][_v]*=correction_factor
+            yield ens
+
+            
 class ReadAhead(object):
     def __init__(self, maxlen):
         self.maxlen = maxlen
