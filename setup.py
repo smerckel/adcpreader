@@ -12,7 +12,7 @@ from distutils.core import setup
 setup(name="rdi",
       version=version,
       packages = ["rdi"],
-      scripts = [],
+      scripts = ['pd0rename.py'],
       author = "Lucas Merckelbach",
       author_email = "lucas.merckelbach@hzg.de",
       url = "")

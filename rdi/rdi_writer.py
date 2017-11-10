@@ -7,7 +7,6 @@ import sys
 import numpy as np
 
 import ndf
-
 from rdi import __VERSION__
 
 TransformationTranslations = dict(Earth = 'east north up error'.split(),
@@ -138,6 +137,7 @@ def rad(x):
 
 
 
+
 class Writer(object):
     YEAR = 2000
     def __init__(self):
@@ -238,12 +238,19 @@ class Writer(object):
             return np.ma.masked_array(v, condition)
         else:
             return np.array(v)
+        
+        # subclass this class and implement these methods below.
+        def write_configuration(self, config, fd):
+            raise NotImplementedError("This method is not implemented. Subclass this class...")
 
-    def write_to_file(self, config, data1d, data2d):
-        raise NotImplementedError("This method is not implemented. Subclass this method...")
+        def write_header(self, config, fd):
+            raise NotImplementedError("This method is not implemented. Subclass this class...")
+
+        def write_array(self,config, data1d, data2d, fd):
+            raise NotImplementedError("This method is not implemented. Subclass this class...")
 
 
-    
+
 class AsciiWriter(Writer):
     DESCRIPTIONS = {"Earth":"Eastward current-Northward current-Upward current-Error velocity".split("-"),
                     "Beam" :"Beam 1-Beam 2-Beam 3-Beam 4".split("-"),
@@ -256,7 +263,7 @@ class AsciiWriter(Writer):
         Parameters:
         -----------
         output_file: a file pointer of filename (default sys.stdout)
-        adco_offset: the distance in m that the profile data should be offset by
+        adcp_offset: the distance in m that the profile data should be offset by
 
         '''
         
@@ -267,10 +274,16 @@ class AsciiWriter(Writer):
         
   
     def write_configuration(self, config, fd=sys.stdout):
-        kws = "Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm OriginalCoordXfrm WaterMode FirstBin SystemSerialNumber".split()
+        kws = "Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm WaterMode FirstBin SystemSerialNumber".split()
+        kws_added = ['OriginalCoordXfrm'] #these get added during transformations etc.
         fd.write("{}Configuration:\n".format(self.comment))
         for kw in kws:
             fd.write("{}{} : {}\n".format(self.comment, kw, config[kw]))
+        for kw in kws_added:
+            try:
+                fd.write("{}{} : {}\n".format(self.comment, kw, config[kw]))
+            except KeyError:
+                pass
         fd.write("{}\n".format(self.comment))
                      
     def write_header(self, config, fd=sys.stdout):

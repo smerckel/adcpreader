@@ -41,13 +41,13 @@ for s in [args.dbd_directory, args.pd0_directory]:
 
 fns = dbdreader.DBDList(glob.glob(os.path.join(args.dbd_directory,"{}*.{}".format(args.glider, dbd_ext))))
 if not fns:
-    raise ValueError("No dbd files were found in {}.".format(args.dbd_directory))
+    raise ValueError("No {} files were found in {}.".format(iargs.dbd_ext, args.dbd_directory))
 fns.sort()
 
 
 pd0s = glob.glob(os.path.join(args.pd0_directory,"*.{}".format(pd0_ext)))
 if not pd0s:
-    raise ValueError("No PD0 files were found in {}.".format(args.pd0_directory))
+    raise ValueError("No {} files were found in {}.".format(args.pd0_ext, args.pd0_directory))
 pd0s.sort()
 
 t_pd0 = []
