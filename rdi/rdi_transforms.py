@@ -81,6 +81,8 @@ class Transform(object):
     PARAMS = dict(velocity = ['Velocity'],
                   bottom_track = ['BTVel'])
     CACHE = {}
+    # If parameters are modified, propagate the modifications back into the ens data (pitch for example).
+    UPDATE_CORRECTIONS = True
     
     def __init__(self, inverse = False):
         self.inverse = inverse
@@ -102,10 +104,9 @@ class Transform(object):
         try:
             f = self.hooks['attitude_correction']
         except KeyError:
+            # no function found, return as is.
             return hdg, ptch, roll
         else:
-        #    print(hdg, ptch, roll, end=" ")
-        #    print(*f(hdg, ptch, roll))
             return f(hdg, ptch, roll)
 
     def get_beam_configuration(self, ens):
@@ -140,6 +141,11 @@ class Transform(object):
         pitch = ens['variable_leader']['Pitch']*np.pi/180.
         roll = ens['variable_leader']['Roll']*np.pi/180.
         hdg, pitch, roll = self.attitude_correction(hdg, pitch, roll)
+        if self.UPDATE_CORRECTIONS:
+            ens['variable_leader']['Heading'] = hdg/np.pi*180.
+            ens['variable_leader']['Pitch'] = pitch/np.pi*180.
+            ens['variable_leader']['Roll'] = roll/np.pi*180.
+
         attitude = Attitude(hdg, pitch, roll)
 
         a,b,c,d, facing = self.get_beam_configuration(ens)
