@@ -23,6 +23,7 @@ class Writer(object):
     def __init__(self):
         self.output_file = None
         self.custom_parameters = dict(scalar=[], vector=[])
+        self.set_custom_parameter('sigma', '*', 'vector')
         
     def __call__(self, ensembles):
         self.write_ensembles(ensembles)
@@ -87,9 +88,15 @@ class Writer(object):
         for s, p in self.custom_parameters['vector']:
             if p=="*":
                 for k, v in ens[s].items():
-                    data[k].append(v)
+                    try:
+                        data[k].append(v)
+                    except KeyError:
+                        pass
             else:
-                data[p].append(ens[s][p])
+                try:
+                    data[p].append(ens[s][p])
+                except KeyError:
+                    pass
 
     def read_onedimdata(self, data, ens):
         try: # see if we have bottom track data, if not, ignore.
