@@ -2,6 +2,38 @@ import numpy as np
 
 from rdi import __VERSION__
 
+# if true, all ensembles that have all data blanked out because of some quality check will silently be dropped.
+DROP_MASKED_ENSEMBLES = False
+    
+class MaskedScalar(object):
+
+    def __init__(self, value, mask):
+        self.value = value
+        self.mask = mask
+
+    def __add__(self, value):
+        return self.value + value
+
+    def __radd__(self, value):
+        return self.value + value
+
+    def __truediv__(self, value):
+        return self.value / value
+
+    def __rtruediv__(self, value):
+        return value/self.value
+
+    def __mul__(self, value):
+        return self.value * value
+
+    def __rmul__(self, value):
+        return self.value * value
+
+    def __sub__(self, value):
+        return self.value - value
+
+    def __rsub__(self, value):
+        return value - self.value
 
 class QualityControl(object):
     ''' Quality Control base class
@@ -10,7 +42,6 @@ class QualityControl(object):
     
         scalars that don't pass the condition are set to nan.
     '''
-    
     def __init__(self):
         self.conditions = list()
         self.operations = {">":self.discard_greater,
@@ -28,9 +59,12 @@ class QualityControl(object):
 
     def gen(self, ensembles):
         ''' generator, returning checked ensembles '''
-        for ens in ensembles:
-            self.check_ensemble(ens)
-            yield ens
+        for i, ens in enumerate(ensembles):
+            keep_ensemble = self.check_ensemble(ens)
+            if keep_ensemble or not DROP_MASKED_ENSEMBLES:
+                yield ens
+            else:
+                continue # ensemble is dropped
 
     def check_ensemble(self, ens):
         ''' check an ensemble. Should be subclassed.'''
@@ -90,6 +124,9 @@ class QualityControl(object):
                 
 class ValueLimit(QualityControl):
     ''' Qualtiy Control class to mask values that are exceeding some limit.'''
+    VECTORS = 'velocity correlation echo percent_good'.split()
+    SCALARS = ['bottom_track']
+    
     def __init__(self):
         super().__init__()
         
@@ -104,12 +141,43 @@ class ValueLimit(QualityControl):
         self.conditions.append((section, parameter, operator, value))
 
     def check_ensemble(self, ens):
+        keep_ensemble = True
+        mask_ensemble = False
+        
         for section, parameter, operator, value in self.conditions:
+            if section != 'variable_leader':
+                continue
             v = ens[section][parameter]
             f = self.operations[operator]
             _v = f(v, value)
-            ens[section][parameter] = _v
-            
+            # we don't put nans in the variable leader. If the check causes a positive, mask the
+            # the variables in the sections SCALARS and VECTORS (see above).
+            # ens[section][parameter] = _v
+            if np.isnan(_v):
+                mask_ensemble = True
+                keep_ensemble = False
+        if mask_ensemble:
+            for section in ValueLimit.VECTORS:
+                for k, v in ens[section].items():
+                    ens[section][k]=np.ma.masked_array(v, True)
+            for section in ValueLimit.SCALARS:
+                for k, v in ens[section].items():
+                    ens[section][k]=np.nan
+        else:
+            for section, parameter, operator, value in self.conditions:
+                if section == 'variable_leader':
+                    continue # already done
+                v = ens[section][parameter]
+                f = self.operations[operator]
+                _v = f(v, value)
+                ens[section][parameter] = _v
+                if np.isscalar(_v): # if parameter is scalar and nan, drop the ens.
+                    if np.isnan(_v):
+                        keep_ensemble = False
+                else:
+                    if np.all(_v.mask): # if all values are masked, drop it too.
+                        keep_ensemble = False
+        return keep_ensemble
             
 
 
@@ -134,4 +202,28 @@ class SNRLimit(QualityControl):
         for i in range(nbeams):
             s="Velocity%d"%(i+1)
             ens['velocity'][s] = self.apply_condition(ens['velocity'][s], condition)
+        return True # always return the ensemble
 
+class Counter(object):
+    ''' An ensemble counter class.
+
+    This class merely counts the number of ensembles that pass through the pipeline at this stage.
+    This implies that no ensemble is modified.
+    
+    The number of ensembles counted are stored in the property counts.
+
+    An instance of this class can be placed at more than one position within the pipeline. The counts 
+    property is a list that reflects the positions where the counter is placed.
+
+    '''
+    
+    def __init__(self):
+        self.counts = []
+
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def gen(self, ensembles):
+        for i, ens in enumerate(ensembles):
+            yield ens
+        self.counts.append(i)
