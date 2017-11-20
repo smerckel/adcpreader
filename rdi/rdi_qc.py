@@ -5,35 +5,6 @@ from rdi import __VERSION__
 # if true, all ensembles that have all data blanked out because of some quality check will silently be dropped.
 DROP_MASKED_ENSEMBLES = False
     
-class MaskedScalar(object):
-
-    def __init__(self, value, mask):
-        self.value = value
-        self.mask = mask
-
-    def __add__(self, value):
-        return self.value + value
-
-    def __radd__(self, value):
-        return self.value + value
-
-    def __truediv__(self, value):
-        return self.value / value
-
-    def __rtruediv__(self, value):
-        return value/self.value
-
-    def __mul__(self, value):
-        return self.value * value
-
-    def __rmul__(self, value):
-        return self.value * value
-
-    def __sub__(self, value):
-        return self.value - value
-
-    def __rsub__(self, value):
-        return value - self.value
 
 class QualityControl(object):
     ''' Quality Control base class
