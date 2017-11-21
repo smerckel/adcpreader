@@ -41,21 +41,36 @@ data block, such as "velocity", "echo", or "bottom_track". The second
 argument sets the variable in this block, which is compared to a
 certain value given as fourth argument according to an operator given
 as third argument. Repeated calling of this method appends the
-discrimination criterion.
+discrimination criterion. Using pitch, heading or roll from the
+variable_leader section, causes all data to be masked, should the
+criterion be met. For pings that have no data at all, that is, all
+data values are masked, the entire ping can be dropped from the
+pipeline. This behaviour is controlled by the module variable
+rdi_qc.DROP_MASKED_ENSEMBLES, which is set to False by default.
 
 
-HOW TO MAKE A TABLE???? ::
-  
-   > variable is discarded if value is greater than threshold
-   >= variable is discarded if value is greater than or equal to threshold
-   < variable is discarded if value is less than or equal to threshold
-   <= variable is discarded if value is less than or equal to threshold
-   ||> variable is discarded if absolute value is greater than threshold
-   ||>= variable is discarded if absolute value is greater than or equal to threshold
-   ||<  variable is discarded if absolute value is less than or equal to threshold
-   ||<=  variable is discarded if absolute value is less than or equal to threshold
+Available operators:
+````````````````````
 
++------+-------------------------------------------------------------------------------+  
+| >    | variable is discarded if value is greater than threshold                      |
++------+-------------------------------------------------------------------------------+
+| >=   | variable is discarded if value is greater than or equal to threshold          |
++------+-------------------------------------------------------------------------------+
+| <    | variable is discarded if value is less than or equal to threshold             |
++------+-------------------------------------------------------------------------------+
+| <=   | variable is discarded if value is less than or equal to threshold             |
++------+-------------------------------------------------------------------------------+
+| ||>  | variable is discarded if absolute value is greater than threshold             |
++------+-------------------------------------------------------------------------------+
+| ||>= | variable is discarded if absolute value is greater than or equal to threshold |
++------+-------------------------------------------------------------------------------+
+| ||<  | variable is discarded if absolute value is less than or equal to threshold    |
++------+-------------------------------------------------------------------------------+
+| ||<= | variable is discarded if absolute value is less than or equal to threshold    |
++------+-------------------------------------------------------------------------------+
 
+.. _sec_qualtiy_control_snrlimit:
 
 SNRLimit
 --------

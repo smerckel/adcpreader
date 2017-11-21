@@ -30,10 +30,12 @@ windows and OSX platforms without modification.
    overview
    working_example
    reader
+   writer
    corrections
    quality_control
    transformations
-
+   backscatter
+   
 
 
 Indices and tables
