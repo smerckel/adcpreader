@@ -28,8 +28,8 @@ class AcousticCrossSection(object):
     A new section 'sigma' is created with the variabels Sigma1..4, and Sigma_AVG.
 
     '''
-    def __init__(self, K=1e-8, Nt=45, db_per_count=[0.3852]*4):
-        self.__data=[K, Nt, db_per_count]
+    def __init__(self, k_t=1e-8, N_t=45, db_per_count=[0.3852]*4):
+        self.__data=[k_t, N_t, db_per_count]
         self.alpha = AcousticAbsorption()
         
     def __call__(self, ensembles):
@@ -66,9 +66,9 @@ class AcousticCrossSection(object):
         # compute radial distance r
         z = np.arange(n_cells,dtype=float)*bin_size + first_bin
         r = z/np.cos(beam_angle)
-        Config = namedtuple('Config', field_names='K Nt db_per_count frequency beam_angle bin_size first_bin n_cells n_beams r'.split())
-        K, Nt, db_per_count = self.__data
-        config = Config(K, Nt, db_per_count, frequency, beam_angle,
+        Config = namedtuple('Config', field_names='k_t N_t db_per_count frequency beam_angle bin_size first_bin n_cells n_beams r'.split())
+        k_t, N_t, db_per_count = self.__data
+        config = Config(k_t, N_t, db_per_count, frequency, beam_angle,
                         bin_size, first_bin, n_cells, n_beams, r)
         return config
     
@@ -96,17 +96,17 @@ class AcousticCrossSection(object):
         
 
     def compute_sigma(self, echo_intensity, T, db_per_count, config):
-        Nt = config.Nt
-        K = config.K
+        N_t = config.N_t
+        k_t = config.k_t
         r = config.r
         f = config.frequency
         
-        ei_db = (echo_intensity-Nt) * db_per_count
+        ei_db = (echo_intensity-N_t) * db_per_count
     
         alpha=self.alpha(f, T, r)
         sigma=r**2*np.exp(4*r*alpha)
         sigma*=10**(ei_db/10)
-        sigma*=K
+        sigma*=k_t
         return sigma
 
     
