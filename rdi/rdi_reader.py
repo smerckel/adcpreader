@@ -77,6 +77,14 @@ HRI["Sensors"]      = 0,8, ["Uses EU from transducer temperature sensor",
 # the VARIABLE_DEFS dictionary lists the corresponding bit size and decode character.
 VARIABLE_DEFS=dict(byte=(1,'B'), word=(2,'H'), short=(2,'h'), uint = (4,'I'))
 
+
+def RTC_to_unixtime(rtc_tuple, baseyear=2000):
+    rtc = list(rtc_tuple)
+    rtc[0]+=baseyear
+    rtc[6]*=1000
+    tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
+    return tm
+    
 def get_ensemble_time(ensemble, baseyear=2000):
     ''' Convenience function to get the time of this ping in seconds.
     
@@ -87,11 +95,7 @@ def get_ensemble_time(ensemble, baseyear=2000):
                          so that 1900 or 2000 needs to be added to know in 
                          what century the data were collected.
     '''
-    rtc = list(ensemble['variable_leader']['RTC'])
-    rtc[0]+=baseyear
-    rtc[6]*=1000
-    tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
-    return tm
+    return RTC_to_unixtime(ensemble['variable_leader']['RTC'], baseyear)
 
 class Ensemble(object):
     '''
