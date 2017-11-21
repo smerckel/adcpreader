@@ -23,7 +23,7 @@ class Writer(object):
     def __init__(self):
         self.output_file = None
         self.custom_parameters = dict(scalar=[], vector=[])
-        self.set_custom_parameter('sigma', '*', 'vector')
+        self.set_custom_parameter('sigma', '*', dtype='vector')
         
     def __call__(self, ensembles):
         self.write_ensembles(ensembles)
@@ -35,7 +35,7 @@ class Writer(object):
         except TypeError:
             self.__write_ensembles(self.output_file, ensembles)
 
-    def set_custom_parameters(self, section, *name, dtype='scalar'):
+    def set_custom_parameter(self, section, *name, dtype='scalar'):
         for _name in name:
             self.custom_parameters[dtype].append((section, _name))
             
