@@ -81,10 +81,22 @@ VARIABLE_DEFS=dict(byte=(1,'B'), word=(2,'H'), short=(2,'h'), uint = (4,'I'))
 def RTC_to_unixtime(rtc_tuple, baseyear=2000):
     rtc = list(rtc_tuple)
     rtc[0]+=baseyear
-    rtc[6]*=1000
+    rtc[6]*=1000 # in millisecond, datetime uses microseconds
     tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
     return tm
-    
+
+def unixtime_to_RTC(timestamp, baseyear=2000):
+    UTC = datetime.timezone.utc
+    dt = datetime.datetime.fromtimestamp(timestamp,UTC)
+    rtc =(dt.year-baseyear,
+          dt.month,
+          dt.day,
+          dt.hour,
+          dt.minute,
+          dt.second,
+          dt.microsecond//1000) # wants milliseconds here
+    return rtc
+
 def get_ensemble_time(ensemble, baseyear=2000):
     ''' Convenience function to get the time of this ping in seconds.
     
@@ -456,52 +468,103 @@ class Ensemble(object):
         return data
             
 class PD0(object):
+    BUFFER_SIZE = 524288 # 512 blocks of 1024
     ''' Class to process one or multiple PD0 files.
     '''
     
-    def read(self, filename):
-        ''' Read the contents of given filename and return binary data.
-        '''
-        with open(filename, 'rb') as fd:
-            data = fd.read()
-        return data
-    
-    def ensemble_data_generator(self, data):
-        ''' Generator returning binary data per ensemble.
-
-        Takes a binary data block as input
-
-        returns binary data in chunks, each containing the data of one ensemble
-        '''
-        idx_next = 0
-        while True:
-            idx = data.find(HEX7F7F, idx_next)
-            if idx==-1:
-                break
-            checksum_offset = self.get_word(data, idx+2)
-            checksum = self.get_word(data, idx + checksum_offset)
-            if not self.crc_check(data, idx, checksum_offset, checksum):
-                logging.debug("CRC mismatch at 0x%x"%(idx))
-                continue
-            idx_next = idx + checksum_offset + SIZE_CHECKSUM
-            yield data[idx:idx_next]
-
-    def ensemble_generator(self, f):
-        ''' Generator returnining binary data per ensemble for a filename or list of filenames
+    def ensemble_generator_per_file(self, filename):
+        ''' Generator returning ensembles for a single filename.
         
-        Input: filename or list of file names:
-        Output: decoded ensemble.
+        Parameter:
+        ----------
+        filename: string representing filename
+        
+        Returns:
+        --------
+        ensemble: decoded ensemble
+        '''
+
+        buffer_size = PD0.BUFFER_SIZE
+
+        with open(filename, 'rb') as fd:
+            data = fd.read(buffer_size)
+            is_fd_consumed = len(data)<buffer_size
+            while True:
+                # data should be big enough to contain HEXF7F7 id and
+                # checksum offset
+                data, is_fd_consumed = self.read_data_as_needed(fd, data, 8, buffer_size)
+
+                idx = data.find(HEX7F7F)
+                if idx == -1 and is_fd_consumed:
+                    break # we're done.
+                if idx == -1 and not is_fd_consumed:
+                    raise ValueError('Could not find start ID in data, but the file has still data to process.\nThis is unexpected behaviour. FIX ME.')
+                checksum_offset = self.get_word(data, idx+2)
+                idx_next = idx + checksum_offset + SIZE_CHECKSUM
+                
+                # data should be big enough to contain idx +checksum_offset + size_checksum
+                data, is_fd_consumed = self.read_data_as_needed(fd, data, idx_next, buffer_size)
+                
+                checksum = self.get_word(data, idx + checksum_offset)
+                if not self.crc_check(data, idx, checksum_offset, checksum):
+                    logging.debug("CRC mismatch at 0x%x"%(idx))
+                    continue
+
+                ensemble = Ensemble(data[idx:idx_next]).decode()
+                # strip returned data from data...
+                data = data[idx_next:]
+
+                yield ensemble
+                
+        
+    def ensemble_generator(self, f):
+        ''' Generator returning ensembles for a filename or list of filenames.
+        
+        Parameter:
+        ----------
+        f: filename or list of file names
+        
+        Returns:
+        --------
+        ensemble: decoded ensemble
         '''
         if isinstance(f, str):
             filenames = [f]
         else:
             filenames= list(f)
         for fn in filenames:
-            data = self.read(fn)
-            for chunk in self.ensemble_data_generator(data):
-                yield Ensemble(chunk).decode()
+            for ensemble in self.ensemble_generator_per_file(fn):
+                yield ensemble
             
     ### helper functions ###
+    def read_data_as_needed(self, fd, data, requested_size, buffer_size):
+        ''' read as much data from file descriptor as needed. 
+
+        This method is a helper method and should not be called directly.
+
+        Params:
+        -------
+
+        fd: file descriptor of opened file
+        data: byte string of data already read
+        requested_size: int representing how long data must be
+        buffer_size: int how many bytes should be read at once.
+
+        Returns:
+        --------
+
+        data: byte string of data read (equal to input data, or extened if necessary)
+        is_fd_consumed: bool flagging if the file has been read totally
+        '''
+        is_fd_consumed = False
+        while len(data) < requested_size:
+            __data = fd.read(buffer_size)
+            data += __data
+            is_fd_consumed = len(__data)<buffer_size
+            if is_fd_consumed:
+                break
+        return data, is_fd_consumed
+
     def get_word(self,data,idx):
         w, = struct.unpack('<H', data[idx:idx+2])
         return w
@@ -518,9 +581,10 @@ if __name__ == "__main__":
     filename = "../data/PF230519.PD0"
     
     pd0 = PD0()
-    data = pd0.read(filename)
-    idx = [i for i in pd0.ensemble_data_generator(data)]
-    ens = Ensemble(idx[0])
-    data = ens.decode()
-    
-    q=[i for i in pd0.ensemble_generator([filename])]
+
+    ens = pd0.ensemble_generator(filename)
+
+    s = list(ens)
+    print("Number of ensembles:", len(s))
+    print("Last ensemble:")
+    print(s[-1])
