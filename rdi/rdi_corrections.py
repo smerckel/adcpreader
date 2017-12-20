@@ -109,6 +109,66 @@ class SpeedOfSoundCorrection(object):
                     ens[k][_v]*=correction_factor
             yield ens
 
+class Aggregator(object):
+    '''Class to aggregate a number of ensembles into averages of time,
+    roll, pitch, heading, sound speed, salinity temperature, pressure,
+    velocity_i and echo_i. Other parameters are taken from the most
+    central ensemble.
+
+    Typical use:
+
+    agg = Aggregator(60) # 60 ensembles averaged together
+
+
+    :
+    
+    ens = agg(ens) # returns new generator ens.
+
+    :
+
+    '''
+    AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4".split()
+    
+    def __init__(self, aggregate_size):
+        ''' Constructor
+
+        Parameter:
+        ----------
+        
+        aggregate_size: int, this many ensembles should be aggregated.
+        '''
+        self.aggregate_size = aggregate_size
+        
+    def aggregate(self, collection):
+        ens = collection[len(collection)//2]
+        for s, grp in ens.items():
+            for v in grp.keys():
+                if v not in Aggregator.AVG_PARAMETERS:
+                    continue
+                x = [c[s][v] for c in collection]
+                # figuring out whether to mean an masked array or a normal array:
+                # we don't want to create masked arrays unnecessary...
+                if np.any([isinstance(_x, np.ma.MaskedArray) for _x in x]):
+                    xm = np.ma.mean(x, axis=0)
+                else:
+                    xm = np.mean(x, axis=0)
+                ens[s][v]=xm
+        tm = np.mean([get_ensemble_time(c) for c in collection])
+        ens['variable_leader']['RTC'] = unixtime_to_RTC(tm)
+        collection.clear()
+        return ens
+
+
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def gen(self, ensembles):
+        collection = []
+        for k, ens in enumerate(ensembles):
+            collection.append(ens)
+            if ((k+1)%self.aggregate_size) == 0:
+                ens_agg = self.aggregate(collection)
+                yield ens_agg
             
 class ReadAhead(object):
     def __init__(self, maxlen):
