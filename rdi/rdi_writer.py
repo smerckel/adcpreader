@@ -5,9 +5,11 @@ import os
 import sys
 
 import numpy as np
+from  netCDF4 import Dataset
 
 import ndf
 from rdi import __VERSION__
+from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
 
 TransformationTranslations = dict(Earth = 'east north up error'.split(),
                                   Ship = 'starboard forward up error'.split(),
@@ -151,7 +153,180 @@ class Writer(object):
         def write_array(self,config, data1d, data2d, fd):
             raise NotImplementedError("This method is not implemented. Subclass this class...")
 
+# NetCDF format specifiers:
+# just for reference...        
 
+# 'f4' (32-bit floating point),
+# 'f8' (64-bit floating point),
+# 'i4' (32-bit signed integer),
+# 'i2' (16-bit signed integer),
+# 'i8' (64-bit signed integer),
+# 'i1' (8-bit signed integer),
+# 'u1' (8-bit unsigned integer),
+# 'u2' (16-bit unsigned integer),
+# 'u4' (32-bit unsigned integer),
+# 'u8' (64-bit unsigned integer),
+# 'S1' (single-character string). 
+
+
+
+class NetCDFWriter(Writer):
+    VARIABLES = dict(N_Cells = ('u1', 'scalar', '-'), 
+                     N_PingsPerENS = ('u1', 'scalar', '-'),
+                     Blank = ('f4', 'scalar', 'm'),
+                     FirstBin = ('f4', 'scalar', 'm'),
+                     #
+                     Roll = ('f4', 'onedim', 'deg'), 
+                     Pitch = ('f4', 'onedim', 'deg'), 
+                     Heading = ('f4', 'onedim','deg'), 
+                     Soundspeed = ('f4', 'onedim', 'm/s'), 
+                     Salin = ('f4', 'onedim', 'SA'), 
+                     Temp = ('f4', 'onedim', 'Celcius'), 
+                     Press = ('f4', 'onedim', 'dbar?'), 
+                     Ensnum = ('i8', 'onedim', '-'), 
+                     Time = ('f8', 'onedim', 's'),
+                     #
+                     Velocity1 = ('f4', 'twodim', 'm/s'), 
+                     Velocity2 = ('f4', 'twodim', 'm/s'), 
+                     Velocity3 = ('f4', 'twodim', 'm/s'), 
+                     Velocity4 = ('f4', 'twodim', 'm/s'), 
+                     Echo1 = ('f4', 'twodim', 'dB'), 
+                     Echo2 = ('f4', 'twodim', 'dB'), 
+                     Echo3 = ('f4', 'twodim', 'dB'), 
+                     Echo4 = ('f4', 'twodim', 'dB'), 
+                     Echo_AVG = ('f4', 'twodim', 'dB'))
+    
+    SECTIONS = 'fixed_leader variable_leader velocity echo'.split()
+                                    
+                                    
+    def __init__(self, output_file, ensemble_size_limit=None):
+        ''' Constructor
+
+        Parameters:
+        -----------
+        output_file: string representing the output filename
+        ensemble_size_limit: integer | None limiting the number of ensembles to be written into 
+                             a single netcdf file. None or 0 means no limit (one file will be written).
+        '''
+        
+        super().__init__()
+        self.ensemble_size_limit = ensemble_size_limit
+        self.output_file = output_file
+        
+    def close(self):
+        ''' Close current open file '''
+        self.dataset.close()
+
+    def write_ensembles(self, ensembles):
+        '''Write ensembles to file or files
+
+        Parameters:
+        -----------
+
+        ensembles: iteratable of ensembles (generator/list/etc)
+
+        Returns:
+        --------
+        a tuple of the number of ensembles written and the number of files written.
+
+        '''
+        n = 0
+        if self.ensemble_size_limit:
+            self.open(n)
+        else:
+            self.open()
+            
+        k=0
+        for i, ens in enumerate(ensembles):
+            if k==0:
+                dimensions, variables = self.initialise(ens)
+            self.add_ensemble(k, ens, variables)
+            k+=1
+            if self.ensemble_size_limit and k==self.ensemble_size_limit:
+                self.close()
+                n+=1
+                k=0
+                self.open(n)
+        return i, n+1
+    
+    # "private" methods
+    def create_dimensions(self, n_bins):
+        time = self.dataset.createDimension('time', None)
+        lat = self.dataset.createDimension('lat',1)
+        lon = self.dataset.createDimension('lon',1)
+        z = self.dataset.createDimension('z', n_bins)
+        
+        return time, z, lat, lon
+    
+    def create_variables(self, ens):
+        variables =dict()
+        variables['time'] = self.dataset.createVariable('time', 'f8', ('time',))
+        variables['time'].units = 's'
+        variables['time'].long_name = 'time'
+        variables['time'].standard_name = 'time'
+
+        
+        variables['z'] = self.dataset.createVariable('z', 'f4', ('z',))
+        variables['z'].units = 'm'
+        z = np.arange(ens['fixed_leader']['N_Cells'])*ens['fixed_leader']['DepthCellSize']
+        z += ens['fixed_leader']['FirstBin']
+        variables['z'][...] = z
+
+        for s, grp in ens.items():
+            if s not in self.SECTIONS:
+                continue
+            for v, value in grp.items():
+                try:
+                    fmt, dim, units = self.VARIABLES[v]
+                except KeyError:
+                    pass
+                else:
+                    if dim == 'scalar':
+                        variables[v] = self.dataset.createVariable(v, fmt)
+                        variables[v][...] = value
+                    elif dim == 'onedim':
+                        variables[v] = self.dataset.createVariable(v, fmt, ('time',))
+                    elif dim == 'twodim':
+                        variables[v] = self.dataset.createVariable(v, fmt, ('time','z'))
+                    else:
+                        raise ValueError('Unknown Dimension specification.')
+                    variables[v].units = units
+        return variables
+
+    def add_ensemble(self, k, ens, variables):
+        for s, grp in ens.items():
+            if s not in self.SECTIONS:
+                continue
+            for v, value in grp.items():
+                try:
+                    fmt, dim, units = self.VARIABLES[v]
+                except KeyError:
+                    pass
+                else:
+                    if dim == 'onedim':
+                        variables[v][k] = value
+                    elif dim == 'twodim':
+                        variables[v][k,...] = value
+        variables['time'][k] = get_ensemble_time(ens)
+    
+    def initialise(self, ens):
+        n_bins = ens['fixed_leader']['N_Cells']
+        dimensions = self.create_dimensions(n_bins)
+        variables = self.create_variables(ens)
+        return dimensions, variables
+
+    def open(self, n=None):
+        if n==None:
+            output_file=self.output_file
+        else:
+            base, ext = os.path.splitext(self.output_file)
+            output_file = "{:s}{:04d}{:s}".format(base, n, ext)
+        try:
+            self.close()
+        except:
+            pass
+        self.dataset = Dataset(output_file, 'w', format = "NETCDF4")
+        
 
 class AsciiWriter(Writer):
     DESCRIPTIONS = {"Earth":"Eastward current-Northward current-Upward current-Error velocity".split("-"),
