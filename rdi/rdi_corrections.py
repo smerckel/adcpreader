@@ -7,17 +7,7 @@ import gsw
 
 from rdi import __VERSION__
 from . import rdi_transforms
-
-def get_ensemble_timestamp(ens, century=2000):
-    ''' returns timestamp in UTC in unix time (s)'''
-    rtc = list(ens['variable_leader']['RTC'])
-    rtc[0]+=century
-    rtc[6]*=10000
-    tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
-    if tm<1e9:
-        raise ValueError('Wrong time stamp. Aborting.')
-    return tm
-
+from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
 
 
 class SpeedOfSoundCorrection(object):
@@ -32,7 +22,7 @@ class SpeedOfSoundCorrection(object):
 
     def get_ensemble_timestamp(self, ens):
         ''' returns timestamp in UTC in unix time (s)'''
-        return get_ensemble_timestamp(ens,self.RTC_year_base)
+        return get_ensemble_time(ens,self.RTC_year_base)
     
     def horizontal_current_from_salinity_pressure(self, ensembles, t, SA, P):
         ''' Generator returning ensemble data with corrected HORIZONTAL currents
@@ -127,7 +117,7 @@ class Aggregator(object):
     :
 
     '''
-    AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4".split()
+    AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Timestamp Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4".split()
     
     def __init__(self, aggregate_size):
         ''' Constructor
@@ -220,7 +210,7 @@ class PlatformAngularVelocityCorrection(object):
         tm = np.empty(n, float)
         for i, ens in enumerate(context_ens):
             data = ens['variable_leader']
-            tm[i] = get_ensemble_timestamp(ens)
+            tm[i] = get_ensemble_time(ens)
             hdg[i] = data['Heading']
             pitch[i] = data['Pitch']
             roll[i] = data['Roll']

@@ -50,7 +50,7 @@ class Writer(object):
                 config = ens['fixed_leader']
                 self.write_configuration(config, fd)
                 self.write_header(config, fd)
-            self.read_variable_leader(data1d,ens['variable_leader'])
+            self.read_variable_leader(data1d,ens)
             self.read_onedimdata(data1d, ens)
             self.read_twodimdata(data2d, ens)
             self.write_array(config, data1d, data2d, fd)
@@ -58,11 +58,12 @@ class Writer(object):
             data2d.clear()
         
 
-    def read_variable_leader(self, data, vld):
-        rtc = list(vld['RTC'])
-        rtc[0]+=self.YEAR
-        rtc[6]*=1000
-        tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
+    def read_variable_leader(self, data, ens):
+        vld = ens['variable_leader']
+        try:
+            tm = ens['variable_leader']['Timestamp']
+        except KeyError:
+            tm = get_ensemble_time(ens)
         data['Ens'].append(vld['Ensnum'])
         data['Time'].append(tm)
         data['Soundspeed'].append(vld['Soundspeed'])
@@ -237,6 +238,7 @@ class NetCDFWriter(Writer):
             self.open()
             
         k=0
+        i=0
         for i, ens in enumerate(ensembles):
             if k==0:
                 dimensions, variables = self.initialise(ens)
@@ -307,7 +309,10 @@ class NetCDFWriter(Writer):
                         variables[v][k] = value
                     elif dim == 'twodim':
                         variables[v][k,...] = value
-        variables['time'][k] = get_ensemble_time(ens)
+        try:
+            variables['time'][k] = ens['variable_leader']['Timestamp']
+        except KeyError:
+            variables['time'][k] = get_ensemble_time(ens)
     
     def initialise(self, ens):
         n_bins = ens['fixed_leader']['N_Cells']

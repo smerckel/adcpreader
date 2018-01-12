@@ -109,6 +109,16 @@ def get_ensemble_time(ensemble, baseyear=2000):
     '''
     return RTC_to_unixtime(ensemble['variable_leader']['RTC'], baseyear)
 
+
+def add_timestamp(ensembles, baseyear=2000):
+    ''' Generator function to add unix time to ensemble. 
+    A new variable 'timestamp' is created for the section 'variable_leader'.
+    '''
+    for ens in ensembles:
+        tm = get_ensemble_time(ens, baseyear)
+        ens['variable_leader']['Timestamp'] = tm
+        yield ens
+        
 class Ensemble(object):
     '''
     class to hold and decode a binary data block containing a single ping.

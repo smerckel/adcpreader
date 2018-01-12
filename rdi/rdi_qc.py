@@ -2,8 +2,9 @@ import numpy as np
 
 from rdi import __VERSION__
 
-# if true, all ensembles that have all data blanked out because of some quality check will silently be dropped.
-DROP_MASKED_ENSEMBLES = False
+# default setting for if true, all ensembles that have all data
+# blanked out because of some quality check will silently be dropped.
+DROP_MASKED_ENSEMBLES_BY_DEFAULT = False
     
 
 class QualityControl(object):
@@ -13,7 +14,7 @@ class QualityControl(object):
     
         scalars that don't pass the condition are set to nan.
     '''
-    def __init__(self):
+    def __init__(self, drop_masked_ensembles=None):
         self.conditions = list()
         self.operations = {">":self.discard_greater,
                            ">=":self.discard_greater_equal,
@@ -23,7 +24,11 @@ class QualityControl(object):
                            "||>=":self.discard_abs_greater_equal,
                            "||<":self.discard_abs_less,
                            "||<=":self.discard_abs_less_equal}
-        
+        if drop_masked_ensembles is None:
+            self.drop_masked_ensembles = DROP_MASKED_ENSEMBLES_BY_DEFAULT
+        else:
+            self.drop_masked_ensembles = drop_masked_ensembles
+            
     def __call__(self, ensembles):
         ''' returns the ensemble generator '''
         return self.gen(ensembles)
@@ -32,7 +37,7 @@ class QualityControl(object):
         ''' generator, returning checked ensembles '''
         for i, ens in enumerate(ensembles):
             keep_ensemble = self.check_ensemble(ens)
-            if keep_ensemble or not DROP_MASKED_ENSEMBLES:
+            if keep_ensemble or not self.drop_masked_ensembles:
                 yield ens
             else:
                 continue # ensemble is dropped
@@ -98,8 +103,8 @@ class ValueLimit(QualityControl):
     VECTORS = 'velocity correlation echo percent_good'.split()
     SCALARS = ['bottom_track']
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, drop_masked_ensembles=None):
+        super().__init__(drop_masked_ensembles)
         
     def set_discard_condition(self, section, parameter, operator, value):
         ''' Set a condition to discard readings.
@@ -129,15 +134,21 @@ class ValueLimit(QualityControl):
                 keep_ensemble = False
         if mask_ensemble:
             for section in ValueLimit.VECTORS:
+                if section not in ens.keys():
+                    continue
                 for k, v in ens[section].items():
                     ens[section][k]=np.ma.masked_array(v, True)
             for section in ValueLimit.SCALARS:
+                if section not in ens.keys():
+                    continue
                 for k, v in ens[section].items():
                     ens[section][k]=np.nan
         else:
             for section, parameter, operator, value in self.conditions:
                 if section == 'variable_leader':
                     continue # already done
+                if section not in ens.keys():
+                    continue
                 v = ens[section][parameter]
                 f = self.operations[operator]
                 _v = f(v, value)
