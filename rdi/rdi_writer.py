@@ -407,7 +407,7 @@ class NDFWriter(Writer):
         for ens in ensembles:
             if not config:
                 config = ens['fixed_leader']
-            self.read_variable_leader(data1d,ens['variable_leader'])
+            self.read_variable_leader(data1d,ens)
             self.read_onedimdata(data1d, ens)
             self.read_twodimdata(data2d, ens)
         self.write_to_file(config, data1d, data2d)
