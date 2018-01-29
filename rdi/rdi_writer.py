@@ -22,11 +22,21 @@ def rad(x):
 
 class Writer(object):
     YEAR = 2000
+    
     def __init__(self):
         self.output_file = None
+        self.set_default_2D_parameters()
         self.custom_parameters = dict(scalar=[], vector=[])
         self.set_custom_parameter('sigma', '*', dtype='vector')
-        
+
+    def set_default_2D_parameters(self):
+        parameters2D = dict(velocity='Velocity1 Velocity2 Velocity3 Velocity4'.split(),
+                            echo='Echo1 Echo2 Echo3 Echo4 Echo_AVG'.split(),
+                            percent_good='PG1 PG2 PG3 PG4'.split(),
+                            correlation='Corr1 Corr2 Corr3 Corr4 Corr_AVG'.split())
+        self.parameters2D = parameters2D
+                            
+                            
     def __call__(self, ensembles):
         self.write_ensembles(ensembles)
         
@@ -75,20 +85,14 @@ class Writer(object):
         data['Temperature'].append(vld['Temp'])
     
     def read_twodimdata(self, data, ens):
-        data['v1'].append(ens['velocity']['Velocity1'])
-        data['v2'].append(ens['velocity']['Velocity2'])
-        data['v3'].append(ens['velocity']['Velocity3'])
-        data['v4'].append(ens['velocity']['Velocity4'])
-        data['e1'].append(ens['echo']['Echo1'])
-        data['e2'].append(ens['echo']['Echo2'])
-        data['e3'].append(ens['echo']['Echo3'])
-        data['e4'].append(ens['echo']['Echo4'])
-        data['pg1'].append(ens['percent_good']['PG1'])
-        data['pg2'].append(ens['percent_good']['PG2'])
-        data['pg3'].append(ens['percent_good']['PG3'])
-        data['pg4'].append(ens['percent_good']['PG4'])
+        for k, v in self.parameters2D.items():
+            for vv in v:
+                # do all like data['Velocity1'].append(ens['velocity']['Velocity1'])
+                data[vv].append(ens[k][vv])
         # add any customized parameters.
         for s, p in self.custom_parameters['vector']:
+            if s not in ens.keys():
+                continue
             if p=="*":
                 for k, v in ens[s].items():
                     try:
@@ -107,14 +111,14 @@ class Writer(object):
         except KeyError:
             pass
         else:
-            data['btv1'].append(bottom_track['BTVel1'])
-            data['btv2'].append(bottom_track['BTVel2'])
-            data['btv3'].append(bottom_track['BTVel3'])
-            data['btv4'].append(bottom_track['BTVel4'])
-            data['btpg1'].append(bottom_track['PG1'])
-            data['btpg2'].append(bottom_track['PG2'])
-            data['btpg3'].append(bottom_track['PG3'])
-            data['btpg4'].append(bottom_track['PG4'])
+            data['BTVel1'].append(bottom_track['BTVel1'])
+            data['BTVel2'].append(bottom_track['BTVel2'])
+            data['BTVel3'].append(bottom_track['BTVel3'])
+            data['BTVel4'].append(bottom_track['BTVel4'])
+            data['BTPG1'].append(bottom_track['PG1'])
+            data['BTPG2'].append(bottom_track['PG2'])
+            data['BTPG3'].append(bottom_track['PG3'])
+            data['BTPG4'].append(bottom_track['PG4'])
         # add any customized parameters.
         for s, p in self.custom_parameters['scalar']:
             data[p].append(ens[s][p])
@@ -378,7 +382,7 @@ class AsciiWriter(Writer):
         firstbin = config['FirstBin']
         binsize = config['DepthCellSize']
         factor = (int(config['Xdcr_Facing']=='Up')*2-1)
-        for t, u, v, w, verr in zip(data1d['Time'], data2d['v1'], data2d['v2'], data2d['v3'], data2d['v4']):
+        for t, u, v, w, verr in zip(data1d['Time'], data2d['Velocity1'], data2d['Velocity2'], data2d['v3'], data2d['v4']):
             dt = datetime.datetime.utcfromtimestamp(t)
             tstr = dt.strftime("%Y-%m-%dT%H:%M:%S")
             for i, (_u, _v, _w, _verr) in enumerate(zip(u, v, w, verr)):
@@ -431,9 +435,9 @@ class NDFWriter(Writer):
     
     def create_ndf(self, config, data1d, data2d):
         units=defaultdict(lambda : '-', Soundspeed='m/s', Temperature='degree', Depth='m',
-                          v1='m/s',v2='m/s',v3='m/s',v4='m/s',
-                          btv1='m/s',btv2='m/s',btv3='m/s',btv4='m/s',
-                          e1='dB',e2='dB',e3='dB',e4='dB',
+                          Velocity1='m/s',Velocity2='m/s',Velocity3='m/s',Velocity4='m/s',
+                          BTVel1='m/s', BTVel2='m/s', BTVel3='m/s', BTVel4='m/s',
+                          Echo1='dB',Echo2='dB',Echo3='dB',Echo4='dB', Echo_AVG='dB',
                           Beam_Angle='deg', DepthCellSize='m',Blank='m',ErrVelThreshold='m/s',
                           FirstBin='m',XmtLegnth='m', LagDistance='m')
         data = ndf.NDF()
@@ -444,25 +448,27 @@ class NDFWriter(Writer):
         for k, v in data1d.items():
             if k == 'Time':
                 continue
-            if k.startswith("btv"):
-                i = int(k.replace("btv",""))-1
+            if k.startswith("BTVel"):
+                i = int(k.replace("BTVel",""))-1
                 s = TransformationTranslations[config['CoordXfrm']][i]
                 ks = " ".join(["Bottom_track",s])
-            elif k.startswith("btpg"):
-                ks = k.replace("btpg","Bottom_track PercentGood")
+            elif k.startswith("BTPG"):
+                ks = k.replace("BTPG","Bottom_track PercentGood")
             else:
                 ks = k
             v = self.array1d_from_list(v)
             data.add_parameter(ks, units[k], (tm, v))
         for k, v in data2d.items():
-            if k.startswith("v"):
-                i = int(k.replace("v",""))-1
+            if k.startswith("Velocity"):
+                i = int(k.replace("Velocity",""))-1
                 s = TransformationTranslations[config['CoordXfrm']][i]
                 ks = " ".join(["Velocity",s])
-            elif k.startswith("e"):
-                ks = k.replace("e","EchoIntensity")
-            elif k.startswith("pg"):
-                ks = k.replace("pg","PercentGood")
+            elif k.startswith("E"):
+                ks = k.replace("Echo","EchoIntensity")
+            elif k.startswith("C"):
+                ks = k.replace("Corr","Correlation")
+            elif k.startswith("PG"):
+                ks = k.replace("PG","PercentGood")
             else:
                 ks = k
             v = self.array2d_from_list(v)
