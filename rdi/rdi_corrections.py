@@ -47,6 +47,7 @@ class SpeedOfSoundCorrection(object):
             Pi = float(ifun_P(tm))
             sound_speed = gsw.sound_speed_t_exact(SAi, temp, Pi)
             correction_factor = sound_speed/sound_speed_0
+            raise ValueError('CHECK HERE IF THE CORRECTION FACTOR MAKES SENSE! in rdi_corrections.py')
             for k, v in self.Vhor.items():
                 for _v in v:
                     ens[k][_v]*=correction_factor
@@ -98,6 +99,23 @@ class SpeedOfSoundCorrection(object):
                 for _v in v:
                     ens[k][_v]*=correction_factor
             yield ens
+
+class MotionBias(object):
+    V3D = dict(velocity=['Velocity1', 'Velocity2', 'Velocity3'],
+               bottom_track=['BTVel1', 'BTVel2', 'BTVel3'])
+
+    def __init__(self, v_bias):
+        self.v_bias = v_bias
+
+    def __call__(self, ensembles):
+        for ens in ensembles:
+            # require "ship" coordinates.
+            if ens['fixed_leader']['CoordXfrm'] != 'Ship':
+                raise ValueError('Motion bias correction requires at this stages "ship" coordinates.')
+            ens['velocity']['Velocity2']+=self.v_bias
+            yield ens
+            
+    
 
 class Aggregator(object):
     '''Class to aggregate a number of ensembles into averages of time,
