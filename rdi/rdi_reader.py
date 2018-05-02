@@ -587,14 +587,25 @@ class PD0(object):
 
 
     
-if __name__ == "__main__":    
+if __name__ == "__main__":
+    import rdi_writer
+    import rdi_qc
+
+    vl = rdi_qc.ValueLimit()
+    vl.set_discard_condition('variable_leader', 'Pitch','>',0)
+    #vl.set_discard_condition('variable_leader', 'Pitch','<',0)
+
     filename = "../data/PF230519.PD0"
     
     pd0 = PD0()
-
+    tee = rdi_writer.Tee()
+    
     ens = pd0.ensemble_generator(filename)
-
+    
+    ens, enscpy = tee(ens)
+    enscpy = vl(enscpy)
     s = list(ens)
+    t = list(enscpy)
     print("Number of ensembles:", len(s))
     print("Last ensemble:")
     print(s[-1])

@@ -186,6 +186,32 @@ class SNRLimit(QualityControl):
             ens['velocity'][s] = self.apply_condition(ens['velocity'][s], condition)
         return True # always return the ensemble
 
+
+class AcousticAmplitudeLimit(QualityControl):
+    def __init__(self, amplitude_limit = 75):
+        super().__init__()
+        self.amplitude_limit = amplitude_limit
+
+    def SNR(self, echointensity):
+        return 10**((echointensity-self.noise_floor_db)/10)
+    
+    def check_ensemble(self, ens):
+        nbeams = ens['fixed_leader']['N_Beams']
+        s = ["Echo%d"%(i+1) for i in range(nbeams)]
+        amplitudes = [ens['echo'][_s]  for _s in s]
+        for i,amplitude in enumerate(amplitudes):
+            if i:
+                condition|= amplitude > self.amplitude_limit
+            else:
+                condition = amplitude > self.amplitude_limit
+        for i in range(nbeams):
+            s="Velocity%d"%(i+1)
+            ens['velocity'][s] = self.apply_condition(ens['velocity'][s], condition)
+        return True # always return the ensemble
+
+
+
+    
 class Counter(object):
     ''' An ensemble counter class.
 

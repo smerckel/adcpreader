@@ -1,4 +1,6 @@
 from collections import defaultdict
+from itertools import tee
+from copy import deepcopy, copy
 import datetime
 import glob
 import os
@@ -482,3 +484,14 @@ class NDFWriter(Writer):
         for k, v in self._global_parameters.items():
             data.add_global_parameter(k,*v)
         return data
+
+
+class Tee(object):
+    def copy(self, ensembles):
+        for ens in ensembles:
+            yield deepcopy(ens)
+            
+    def __call__(self, ensembles):
+        g1, g2 = tee(ensembles, 2)
+        return self.copy(g1), self.copy(g2)
+        
