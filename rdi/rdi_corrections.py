@@ -7,18 +7,8 @@ import gsw
 
 from rdi import __VERSION__
 from . import rdi_transforms
-
-def get_ensemble_timestamp(ens, century=2000):
-    ''' returns timestamp in UTC in unix time (s)'''
-    rtc = list(ens['variable_leader']['RTC'])
-    rtc[0]+=century
-    rtc[6]*=10000
-    tm = datetime.datetime(*rtc, datetime.timezone.utc).timestamp()
-    if tm<1e9:
-        raise ValueError('Wrong time stamp. Aborting.')
-    return tm
-
-
+from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
+from . import rdi_hardiron
 
 class SpeedOfSoundCorrection(object):
     Vhor = dict(velocity=['Velocity1', 'Velocity2'],
@@ -32,7 +22,7 @@ class SpeedOfSoundCorrection(object):
 
     def get_ensemble_timestamp(self, ens):
         ''' returns timestamp in UTC in unix time (s)'''
-        return get_ensemble_timestamp(ens,self.RTC_year_base)
+        return get_ensemble_time(ens,self.RTC_year_base)
     
     def horizontal_current_from_salinity_pressure(self, ensembles, t, SA, P):
         ''' Generator returning ensemble data with corrected HORIZONTAL currents
@@ -57,6 +47,7 @@ class SpeedOfSoundCorrection(object):
             Pi = float(ifun_P(tm))
             sound_speed = gsw.sound_speed_t_exact(SAi, temp, Pi)
             correction_factor = sound_speed/sound_speed_0
+            raise ValueError('CHECK HERE IF THE CORRECTION FACTOR MAKES SENSE! in rdi_corrections.py')
             for k, v in self.Vhor.items():
                 for _v in v:
                     ens[k][_v]*=correction_factor
@@ -109,7 +100,131 @@ class SpeedOfSoundCorrection(object):
                     ens[k][_v]*=correction_factor
             yield ens
 
+class MotionBias(object):
+    V3D = dict(velocity=['Velocity1', 'Velocity2', 'Velocity3'],
+               bottom_track=['BTVel1', 'BTVel2', 'BTVel3'])
+
+    def __init__(self, v_bias):
+        self.v_bias = v_bias
+
+    def __call__(self, ensembles):
+        for ens in ensembles:
+            # require "ship" coordinates.
+            if ens['fixed_leader']['CoordXfrm'] != 'Ship':
+                raise ValueError('Motion bias correction requires at this stages "ship" coordinates.')
+            ens['velocity']['Velocity2']+=self.v_bias
+            yield ens
             
+    
+
+class Aggregator(object):
+    '''Class to aggregate a number of ensembles into averages of time,
+    roll, pitch, heading, sound speed, salinity temperature, pressure,
+    velocity_i and echo_i. Other parameters are taken from the most
+    central ensemble.
+
+    Typical use:
+
+    agg = Aggregator(60) # 60 ensembles averaged together
+
+
+    :
+    
+    ens = agg(ens) # returns new generator ens.
+
+    :
+
+    '''
+    AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Timestamp Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4".split()
+    
+    def __init__(self, aggregate_size):
+        ''' Constructor
+
+        Parameter:
+        ----------
+        
+        aggregate_size: int, this many ensembles should be aggregated.
+        '''
+        self.aggregate_size = aggregate_size
+        
+    def aggregate(self, collection):
+        ens = collection[len(collection)//2]
+        for s, grp in ens.items():
+            for v in grp.keys():
+                if v not in Aggregator.AVG_PARAMETERS:
+                    continue
+                x = [c[s][v] for c in collection]
+                # figuring out whether to mean an masked array or a normal array:
+                # we don't want to create masked arrays unnecessary...
+                if np.any([isinstance(_x, np.ma.MaskedArray) for _x in x]):
+                    xm = np.ma.mean(x, axis=0)
+                else:
+                    xm = np.mean(x, axis=0)
+                ens[s][v]=xm
+        tm = np.mean([get_ensemble_time(c) for c in collection])
+        ens['variable_leader']['RTC'] = unixtime_to_RTC(tm)
+        collection.clear()
+        return ens
+
+
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def gen(self, ensembles):
+        collection = []
+        for k, ens in enumerate(ensembles):
+            collection.append(ens)
+            if ((k+1)%self.aggregate_size) == 0:
+                ens_agg = self.aggregate(collection)
+                yield ens_agg
+
+class AttitudeCorrection(rdi_hardiron.HardIron):
+    def __init__(self, Hvector, declination, inclination):
+        super().__init__(Hvector, declination, inclination)
+
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def gen(self, ensembles):
+        for ens in ensembles:
+            heading = ens['variable_leader']['Heading']*np.pi/180.
+            pitch = ens['variable_leader']['Pitch']*np.pi/180.
+            roll = ens['variable_leader']['Roll']*np.pi/180.
+            heading, pitch, roll = self.attitude_correction(heading, pitch, roll)
+            ens['variable_leader']['Heading'] = heading*180/np.pi
+            ens['variable_leader']['Pitch'] = pitch*180/np.pi
+            ens['variable_leader']['Roll'] = roll*180/np.pi
+            yield ens
+    
+class Injector(object):
+    def __init__(self):
+        self.data={}
+
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def set_data(self, section, name, data):
+        '''
+        Sets data from a given time series, so that these data can be inserted into the ensembles.
+
+        parameters:: 
+        -----------
+        section string denoting the name of the section (example "variable_leader")
+        name:   string name of the variable
+        data:   tuple of time and values
+        '''
+        self.data[(section, name)] = interp1d(*data)
+
+    def gen(self, ensembles):
+        for ens in ensembles:
+            ens_tm = ens['variable_leader']['Timestamp']
+            for (s,v), f in self.data.items():
+                ens[s][v] = f(ens_tm) # need to do something when
+                                      # we're interpolating beyond the
+                                      # domain. For now an error will
+                                      # occur...
+            yield ens
+        
 class ReadAhead(object):
     def __init__(self, maxlen):
         self.maxlen = maxlen
@@ -146,55 +261,55 @@ class ReadAhead(object):
         if len(self.in_q)<=self.maxlen//2:
             return None
         return self.in_q
+
     
-class PlatformAngularVelocityCorrection(object):
+class COG_Offset_Correction(object):
 
-    def __init__(self, avg_window_size=5):
-        self.avg_window_size = avg_window_size
-
-    def get_attitude_rate(self, context_ens):
-        n = len(context_ens)
-        roll = np.empty(n, float)
-        hdg = np.empty(n, float)
-        pitch = np.empty(n, float)
-        tm = np.empty(n, float)
-        for i, ens in enumerate(context_ens):
-            data = ens['variable_leader']
-            tm[i] = get_ensemble_timestamp(ens)
-            hdg[i] = data['Heading']
-            pitch[i] = data['Pitch']
-            roll[i] = data['Roll']
-        dt = np.gradient(tm)
-        omega = np.array([np.gradient(pitch)/dt, np.gradient(roll)/dt, np.gradient(hdg)/dt])
-        return omega.mean(axis=1)
+    def __init__(self, offsets = (0, 0.35, -0.11)):
+        self.offsets = offsets
+        
+    def __call__(self, ensembles):
+        return self.correct_angular_motion(ensembles)
+    
             
     def correct_angular_motion(self, ensembles):
-        read_ahead = ReadAhead(self.avg_window_size)
-        n_cells = None
-        FSU_ENU = rdi_transforms.RotationMatrix()
-        ze = np.matrix([0,0,1.,0]).T
-                       
-        for ens, context_ens in read_ahead(ensembles):
-            if not n_cells:
-                n_cells = ens['fixed_leader']['N_Cells']
-                bin_size = ens['fixed_leader']['DepthCellSize']
-                first_bin = ens['fixed_leader']['FirstBin']
-                z = np.arange(n_cells)*bin_size + first_bin
-                if ens['fixed_leader']['CoordXfrm']!='Ship':
-                    raise ValueError('To correct the angular motion, the coordinate system must be SHIP.')
-            omega_x, omega_y, omega_z = self.get_attitude_rate(context_ens)
-            R = FSU_ENU(omega_z, omega_x, omega_y)
-            du, dv, dw, _ = [float(i) for i in  R * ze]
+        rx, ry, rz = self.offsets
+        read_ahead = ReadAhead(3)
+        for ens, ens_context in read_ahead(ensembles):
+            if ens['fixed_leader']['CoordXfrm']!='Ship':
+                raise ValueError('To correct the angular motion, the coordinate system must be SHIP.')
+            heading = [_ens['variable_leader']['Heading']*np.pi/180. for _ens in ens_context]
+            pitch = [_ens['variable_leader']['Pitch']*np.pi/180. for _ens in ens_context]
+            roll = [_ens['variable_leader']['Roll']*np.pi/180. for _ens in ens_context]
+            dt = np.gradient([_ens['variable_leader']['Timestamp'] for _ens in ens_context])
+
             
+            omega_x = (np.gradient(pitch)/dt)[1]
+            omega_y = (np.gradient(roll)/dt)[1]
+            omega_z = (np.gradient(heading)/dt)[1]
+
+            ens['variable_leader']['omega_x'] = omega_x
+            ens['variable_leader']['omega_y'] = omega_y
+            ens['variable_leader']['omega_z'] = omega_z
+
+            # using cross product:
+            du = omega_y*rz - omega_z*ry
+            dv = omega_z*rx - omega_x*rz
+            dw = omega_x*ry - omega_y*rx
+            ens['variable_leader']['Delta_U_sb'] = du
+            ens['variable_leader']['Delta_U_f']  = dv
+            ens['variable_leader']['Delta_U_u']  = dw
+            # du, dv, dw are the velocity components of the sensor.
+            # if still water and omega_z >0, ry >0, then du <0, that is
+            # the sensor moves left. The recorded speed is water coming from the left, that is
+            # u >0. So we need u (>0) + du (<0) to get 0.
             
-            ens['velocity']['Velocity1']+=z*du # positive because upward
-                                             # pitch causes vy to be
-                                             # more negative, so we
-                                             # have to correct for
-                                             # that.
-            ens['velocity']['Velocity2']+=z*dv
-            ens['velocity']['Velocity3']+=z*(1-dw)
-            #print(du[2], dv[2], dw[2], z[2], omega_x, omega_y, omega_z)
+            ens['velocity']['Velocity1']+=du 
+            ens['velocity']['Velocity2']+=dv
+            ens['velocity']['Velocity3']+=dw
+            ens['bottom_track']['BTVel1']+=du
+            ens['bottom_track']['BTVel2']+=dv
+            ens['bottom_track']['BTVel3']+=dw
             yield ens
 
 
