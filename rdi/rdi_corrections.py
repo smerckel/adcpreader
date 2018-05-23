@@ -6,9 +6,9 @@ from scipy.interpolate import interp1d
 import gsw
 
 from rdi import __VERSION__
-from . import rdi_transforms
-from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
-from . import rdi_hardiron
+from rdi import rdi_transforms
+#from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
+from rdi import rdi_hardiron
 
 class SpeedOfSoundCorrection(object):
     Vhor = dict(velocity=['Velocity1', 'Velocity2'],
@@ -178,11 +178,11 @@ class Aggregator(object):
                 ens_agg = self.aggregate(collection)
                 yield ens_agg
 
-class AttitudeCorrection(rdi_hardiron.HardIron):
-    def __init__(self, Hvector, declination, inclination):
-        super().__init__(Hvector, declination, inclination)
+class AttitudeCorrection(object):
 
-    def __call__(self, ensembles):
+    def __call__(self, ensembles,a,b):
+        self.a=a
+        self.b=b
         return self.gen(ensembles)
     
     def gen(self, ensembles):
@@ -195,6 +195,23 @@ class AttitudeCorrection(rdi_hardiron.HardIron):
             ens['variable_leader']['Pitch'] = pitch*180/np.pi
             ens['variable_leader']['Roll'] = roll*180/np.pi
             yield ens
+            
+    def attitude_correction(self, heading, pitch, roll):
+        return  heading, self.a*pitch+ self.b, roll
+
+
+
+        #raise NotImplementedError()
+    
+
+class AttitudeHardIronCorrection(AttitudeCorrection):
+    
+    def __init__(self, Hvector, declination, inclination):
+        super().__init__()
+        hard_iron = rdi_hardiron.HardIron(Hvector, declination, inclination)
+        self.attitude_correction = hard_iron.attitude_correction
+
+        
     
 class Injector(object):
     def __init__(self):
