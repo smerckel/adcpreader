@@ -204,7 +204,7 @@ class AttitudeCorrection(object):
         #raise NotImplementedError()
     
 
-class AttitudeHardIronCorrection(AttitudeCorrection):
+class AttitudeCorrectionHardIron(AttitudeCorrection):
     
     def __init__(self, Hvector, declination, inclination):
         super().__init__()
