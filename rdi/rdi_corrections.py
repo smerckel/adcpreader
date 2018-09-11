@@ -7,7 +7,7 @@ import gsw
 
 from rdi import __VERSION__
 from rdi import rdi_transforms
-#from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
+from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
 from rdi import rdi_hardiron
 
 class SpeedOfSoundCorrection(object):
@@ -178,11 +178,11 @@ class Aggregator(object):
                 ens_agg = self.aggregate(collection)
                 yield ens_agg
 
+
+
 class AttitudeCorrection(object):
 
-    def __call__(self, ensembles,a,b):
-        self.a=a
-        self.b=b
+    def __call__(self, ensembles):
         return self.gen(ensembles)
     
     def gen(self, ensembles):
@@ -197,11 +197,84 @@ class AttitudeCorrection(object):
             yield ens
             
     def attitude_correction(self, heading, pitch, roll):
+        raise NotImplementedError()
+
+class AttitudeCorrectionTiltCorrection(AttitudeCorrection):
+    ''' Corrects the attitude, given a scaling factor and a offset.
+
+        Two methods are available:
+              method == 'simple':
+                  simply scale pitch and roll and correct for offset
+                  heading: unaltered
+              otherwise
+                   using rotation matrices to compute the heading when
+                   applying the corrections in pitch and roll.
+    '''
+    def __init__(self, tilt_correction_factor, pitch_offset = 0,
+                 roll_offset = 0, method = 'simple'):
+        super().__init__()
+        self._f = tilt_correction_factor
+        self.pitch_offset = pitch_offset
+        self.roll_offset = roll_offset
+        self.R = rdi_transforms.RotationMatrix()
+        self.method = method
+
+    def attitude_correction(self, heading, pitch, roll):
+        if self.method == 'simple':
+            return self.__attitude_correction_simple(heading, pitch, roll)
+        else:
+            return self.__attitude_correction(heading, pitch, roll)
+
+    def __attitude_correction_simple(self, heading, pitch, roll):
+        pitchc = self._f * pitch + self.pitch_offset
+        rollc = self._f * roll + self.roll_offset
+        return heading, pitchc, rollc
+
+    
+    def __attitude_correction(self, heading, pitch, roll):
+        CH = np.cos(heading) 
+        CP = np.cos(pitch)   
+        CR = np.cos(roll)    
+        SH = np.sin(heading) 
+        SP = np.sin(pitch)   
+        SR = np.sin(roll)
+
+        pitchc = self._f * pitch + self.pitch_offset
+        rollc = self._f * roll + self.roll_offset
+        
+        CPc = np.cos(pitchc)   
+        CRc = np.cos(rollc)    
+        SPc = np.sin(pitchc)   
+        SRc = np.sin(rollc)    
+
+        Rz = np.matrix([[CH,  SH, 0],
+                        [-SH,  CH, 0],
+                        [0 ,   0, 1]])
+        Ry = np.matrix([[CP,  0,  -SP],
+                        [0 ,  1,  0 ],
+                        [SP, 0,  CP]])
+        Rx = np.matrix([[1 ,  0,  0],
+                        [0 , CR, -SR],
+                        [0 , SR,  CR]])
+        Ryc = np.matrix([[CPc, 0 ,  -SPc],
+                        [0 ,  1,  0 ],
+                        [SPc, 0,  CPc]])
+        Rxc = np.matrix([[1 ,  0,  0],
+                        [0 , CRc, -SRc],
+                        [0 , SRc,  CRc]])
+        R = Rz*Ry*Rx*Rxc.T*Ryc.T
+        headingc = (np.arctan2(R[0,1], R[0,0])+2*np.pi)%(2*np.pi)
+        return headingc, pitchc, rollc
+        
+class AttitudeCorrectionLinear(AttitudeCorrection):
+    def __init__(self, a, b):
+        super().__init__()
+        self.a=a
+        self.b=b
+
+    # implement the specific function.
+    def attitude_correction(self, heading, pitch, roll):
         return  heading, self.a*pitch+ self.b, roll
-
-
-
-        #raise NotImplementedError()
     
 
 class AttitudeCorrectionHardIron(AttitudeCorrection):
