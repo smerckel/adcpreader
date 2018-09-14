@@ -267,15 +267,16 @@ class NetCDFWriter(Writer):
     def write_ensembles(self, ensembles):
         '''Write ensembles to file or files
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
 
-        ensembles: iteratable of ensembles (generator/list/etc)
+        ensembles : iteratable 
+            ensembles (generator/list/etc)
 
-        Returns:
-        --------
-        a tuple of the number of ensembles written and the number of files written.
-
+        Returns
+        -------
+        tuple :
+            number of ensembles written and the number of files written.
         '''
         n = 0
         if self.ensemble_size_limit:

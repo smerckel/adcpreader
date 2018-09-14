@@ -100,12 +100,14 @@ def unixtime_to_RTC(timestamp, baseyear=2000):
 def get_ensemble_time(ensemble, baseyear=2000):
     ''' Convenience function to get the time of this ping in seconds.
     
-        Parameters:
-        -----------
-        ensemble:        decoded ensemble (dictionary)
-        baseyear (2000): the rtc field only contains the year in xx format,
-                         so that 1900 or 2000 needs to be added to know in 
-                         what century the data were collected.
+        Parameters
+        ----------
+        ensemble : dictionary
+            decoded ensemble (dictionary)
+        baseyear : int 
+            (2000) the rtc field only contains the year in xx format,
+            so that 1900 or 2000 needs to be added to know in 
+            what century the data were collected.
     '''
     return RTC_to_unixtime(ensemble['variable_leader']['RTC'], baseyear)
 
@@ -488,13 +490,14 @@ class PD0(object):
     def ensemble_generator_per_file(self, filename):
         ''' Generator returning ensembles for a single filename.
         
-        Parameter:
+        Parameters
         ----------
-        filename: string representing filename
+        filename: string 
+            string representing filename
         
-        Returns:
-        --------
-        ensemble: decoded ensemble
+        Returns
+        -------
+        decoded ensemble
         '''
 
         buffer_size = PD0.BUFFER_SIZE
@@ -533,13 +536,14 @@ class PD0(object):
     def ensemble_generator(self, f):
         ''' Generator returning ensembles for a filename or list of filenames.
         
-        Parameter:
+        Parameters
         ----------
-        f: filename or list of file names
+        f : filename or list 
+            filename or list of file names
         
-        Returns:
-        --------
-        ensemble: decoded ensemble
+        Returns
+        -------
+        decoded ensemble generator
         '''
         if isinstance(f, str):
             filenames = [f]
@@ -555,16 +559,20 @@ class PD0(object):
 
         This method is a helper method and should not be called directly.
 
-        Params:
+        Parameters
+        ----------
+
+        fd : file descriptor
+            file descriptor of opened file
+        data : byte string 
+            data already read
+        requested_size : int 
+            number representing how long data must be
+        buffer_size : int
+            how many bytes should be read at once.
+
+        Returns
         -------
-
-        fd: file descriptor of opened file
-        data: byte string of data already read
-        requested_size: int representing how long data must be
-        buffer_size: int how many bytes should be read at once.
-
-        Returns:
-        --------
 
         data: byte string of data read (equal to input data, or extened if necessary)
         is_fd_consumed: bool flagging if the file has been read totally
@@ -592,10 +600,12 @@ class Pipeline(object):
     Generally, the data read from the PD0 files will be further processed in a pipeline style.
     This class provides the basic machinery for setting up this pipeline. The main idea is
     that a source generator feeds its data through a pipeline, until the data are consumed by a sink
-           
-    source -> op1 -> op2 -> op3 ... -> opn -> sink
-           |____________________________|  
-                pipeline of operations
+    
+    ::
+    
+        source -> op1 -> op2 -> op3 ... -> opn -> sink
+               |____________________________|  
+                    pipeline of operations
 
     Any number of operations can be added to the pipeline. The source is assumed to be an ensemble
     generator PD0.ensemble_generator(), which is automatically invoked when calling the pipeline.

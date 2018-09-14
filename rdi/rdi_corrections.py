@@ -27,10 +27,19 @@ class SpeedOfSoundCorrection(object):
     def horizontal_current_from_salinity_pressure(self, ensembles, t, SA, P):
         ''' Generator returning ensemble data with corrected HORIZONTAL currents
             given externally measured salinity and pressure
+        
+        Parameters
+        ----------
+        t : array
+            unix time (s)
+        SA : array
+             absolute salinity
+        P : array
+            pressure (dbar)
 
-        t (s)    : unix time
-        SA       : absolute salinity
-        P (dbar) : pressure 
+        Returns
+        -------
+        Generator
         '''
         coordinate_xfrm_checked = False
         ifun_SA = interp1d(t, SA, assume_sorted=True)
@@ -57,9 +66,19 @@ class SpeedOfSoundCorrection(object):
         ''' Generator returning ensemble data with corrected currents using 
             given externally measured salinity and pressure at the transducer.
 
-        t (s)    : unix time
-        SA       : absolute salinity
-        P (dbar) : pressure 
+        Parameters
+        ----------
+        t : array
+            unix time (s)
+        SA : array
+             absolute salinity
+        P : array
+            pressure (dbar)
+        
+        Returns
+        -------
+        Generator
+
         '''
         ifun_SA = interp1d(t, SA, assume_sorted=True)
         ifun_P = interp1d(t, P, assume_sorted=True)
@@ -82,11 +101,12 @@ class SpeedOfSoundCorrection(object):
         Generator returning ensemble data with corrected currents using 
         a prescribed salinity
 
-        Parameters:
-        -----------
-        ensembles:  list of ensembles or ensemble generator
-        absolute_salinity: float
-                 absolute salinity that is expected at the transducer head.
+        Parameters
+        ----------
+        ensembles:  list 
+            list of ensembles or ensemble generator
+        absolute_salinity : float
+            absolute salinity that is expected at the transducer head.
         '''
 
         for ens in ensembles:
@@ -140,10 +160,11 @@ class Aggregator(object):
     def __init__(self, aggregate_size):
         ''' Constructor
 
-        Parameter:
+        Parameters
         ----------
-        
-        aggregate_size: int, this many ensembles should be aggregated.
+        aggregate_size: int
+            this many ensembles should be aggregated.
+
         '''
         self.aggregate_size = aggregate_size
         
@@ -198,7 +219,6 @@ class Timeshifter(object):
         
 
 class AttitudeCorrection(object):
-
     def __call__(self, ensembles):
         return self.gen(ensembles)
     
@@ -218,15 +238,25 @@ class AttitudeCorrection(object):
 
 class AttitudeCorrectionTiltCorrection(AttitudeCorrection):
     ''' Corrects the attitude, given a scaling factor and a offset.
-
-        Two methods are available:
-              method == 'simple':
-                  simply scale pitch and roll and correct for offset
-                  heading: unaltered
-              otherwise
-                   using rotation matrices to compute the heading when
-                   applying the corrections in pitch and roll.
+    
+    Parameters
+    ----------
+    tilt_correction_factor : float
+        factor to multiply pitch and roll with
+    pitch_offset : float
+        offset in pitch (rad)
+    method : string
+        which methd to use to correct
     '''
+    # Two methods are available:
+    #     method == 'simple':
+    #         simply scale pitch and roll and correct for offset
+    #         heading: unaltered
+        
+    #      method == 'rotation':
+    #          using rotation matrices to compute the heading when
+    #          applying the corrections in pitch and roll.
+    # '''
     def __init__(self, tilt_correction_factor, pitch_offset = 0,
                  roll_offset = 0, method = 'simple'):
         super().__init__()
@@ -314,11 +344,14 @@ class Injector(object):
         '''
         Sets data from a given time series, so that these data can be inserted into the ensembles.
 
-        parameters:: 
-        -----------
-        section string denoting the name of the section (example "variable_leader")
-        name:   string name of the variable
-        data:   tuple of time and values
+        Parameters 
+        ----------
+        section : string 
+            string denoting the name of the section (example "variable_leader")
+        name : string
+             string name of the variable
+        data : tuple   
+            time and values
         '''
         self.data[(section, name)] = interp1d(*data)
 

@@ -7,23 +7,24 @@ A module to perform rotation transformations on
 
 per ensemble
 
-Typical use is to set up an ensemble generator and a pipeline of transformations:
+Typical use is to set up an ensemble generator and a pipeline of transformations
 
+Examples
+--------
+    >>> bindata = pd0.PD0()
+    >>> ensembles = bindata.ensemble_generator(filenames)
 
-    bindata = pd0.PD0()
-    ensembles = bindata.ensemble_generator(filenames)
+    >>> t1 = TransformENU_FSU()
+    >>> t2 = TransformFSU_XYZ(hdg=0, pitch=0.1919, roll=0)
+    >>> t3 = TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
 
-    t1 = TransformENU_FSU()
-    t2 = TransformFSU_XYZ(hdg=0, pitch=0.1919, roll=0)
-    t3 = TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
+    >>> t4 = t3*t2*t1
 
-    t4 = t3*t2*t1
+    >>> ensembles = t4(ensembles)
 
-    ensembles = t4(ensembles)
+    >>> for ens in ensembles :
+    >>>     print(ens)
 
-    for ens in ensembles:
-          :
-          :
 '''
 
 from collections import namedtuple
