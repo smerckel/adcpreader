@@ -178,7 +178,24 @@ class Aggregator(object):
                 ens_agg = self.aggregate(collection)
                 yield ens_agg
 
+class Timeshifter(object):
+    RTC_year_base=2000
+    def __init__(self, time_offset):
+        self.time_offset = time_offset
 
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def gen(self, ensembles):
+        for ens in ensembles:
+            try:
+                ens['variable_leader']['Timestamp']+=self.time_offset
+            except KeyError:
+                ''' returns timestamp in UTC in unix time (s)'''
+                tm = get_ensemble_time(ens,self.RTC_year_base) + self.time_offset
+                ens['variable_leader']['Timestamp'] = tm
+            yield ens
+        
 
 class AttitudeCorrection(object):
 
