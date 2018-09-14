@@ -1,14 +1,14 @@
 # ---- Last check on 07/12/2017 by Hades, the horrible --- #
+''' 
+First guide:
 
 
-
-''' First guide:
-    import the rdi module with: - import rdi -
-    create an PD0 object with: - pd0 = rdi.rdi_reader.PD0() -
-    create the ensembles with: - ensembles = pd0.ensemble_generator('your_filenames_list') - 
-    create an NW object with:  - nw = NumpyWriter()
-    set custom variables with the method of same name if needed
-    be happy with: - nw(ensembles) - .'''
+* import the rdi module with: - import rdi -
+* create an PD0 object with: - pd0 = rdi.rdi_reader.PD0() -
+* create the ensembles with: - ensembles = pd0.ensemble_generator('your_filenames_list') - 
+* create an NW object with:  - nw = NumpyWriter()
+* set custom variables with the method of same name if needed
+* be happy with: - nw(ensembles) - .'''
 
 from collections import defaultdict
 import datetime
@@ -58,17 +58,27 @@ class NumpyWriter(object):
         self._vectorize()
         
     def set_custom_parameter(self, key, *item, dtype='scalar'):
-        ''' Set any parameter of interest contained in the dictionary of the ensembles pings. 
+        ''' Set a custom parameter
+        Set any parameter of interest contained in the dictionary of the ensembles pings. 
         The ensembles are the generator created by the rdi_reader module. 
-        Custom parameters should be setted before calling the main routine of the class.
+        Custom parameters should be set before calling the main routine of the class.
         Keys and items are case sensitive and dtype as vector must be explicitly be specified.
 
-       Example:
-
-        nw.NumpyWriter()          # create an instance
-        nw.set_custom_parameter('bottom_track','Corr1',dtype = 'Vector')          # set
-        nw.set_custom_parameter('variable_leader','XdcrDepth',dtype = 'scalar')   # set
-        nw(ensembles)  # call the routine
+        Parameters
+        ----------
+        key : string
+           section name of the ensemble
+        item : string
+           name of variable
+        dtype : string 
+           data type (scalar|vector)
+           
+        Example
+        -------
+        >>> nw.NumpyWriter()          # create an instance
+        >>> nw.set_custom_parameter('bottom_track','Corr1',dtype = 'vector')          
+        >>> nw.set_custom_parameter('variable_leader','XdcrDepth',dtype = 'scalar')   
+        >>> nw(ensembles)  # call the routine
 
         Values will be stored as methods in nw.bottom_track_Corr1 and nw.variable_leader_XdcrDepth'''
         for _name in item:
@@ -181,6 +191,7 @@ class NumpyWriter(object):
 
         for string in self._list:
             self.__dict__[string]= np.squeeze(self._array1d_from_list(self.__dict__[string])  )
-      
-nw=NumpyWriter()
+
+# Hey Hades, do you really want to call this, when importing the module?            
+#nw=NumpyWriter()
 

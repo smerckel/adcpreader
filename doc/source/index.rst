@@ -35,8 +35,8 @@ windows and OSX platforms without modification.
    quality_control
    transformations
    backscatter
-   
-
+   pipelines
+   modules
 
 Indices and tables
 ==================
