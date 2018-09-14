@@ -115,8 +115,11 @@ def add_timestamp(ensembles, baseyear=2000):
     A new variable 'timestamp' is created for the section 'variable_leader'.
     '''
     for ens in ensembles:
-        tm = get_ensemble_time(ens, baseyear)
-        ens['variable_leader']['Timestamp'] = tm
+        try: 
+            ens['variable_leader']['Timestamp'] # if it exists, don't overwrite.
+        except KeyError:
+            tm = get_ensemble_time(ens, baseyear)
+            ens['variable_leader']['Timestamp'] = tm
         yield ens
         
 class Ensemble(object):
@@ -584,6 +587,86 @@ class PD0(object):
         crc %= 0x10000
         return crc == checksum
 
+class Pipeline(object):
+    '''
+    Generally, the data read from the PD0 files will be further processed in a pipeline style.
+    This class provides the basic machinery for setting up this pipeline. The main idea is
+    that a source generator feeds its data through a pipeline, until the data are consumed by a sink
+           
+    source -> op1 -> op2 -> op3 ... -> opn -> sink
+           |____________________________|  
+                pipeline of operations
+
+    Any number of operations can be added to the pipeline. The source is assumed to be an ensemble
+    generator PD0.ensemble_generator(), which is automatically invoked when calling the pipeline.
+
+    Examples
+    --------
+    >>> pipeline = Pipeline()
+    >>> # define a filter operation
+    >>> vl = rdi_qc.ValueLimit()
+    >>> vl.set_discard_condition('variable_leader', 'Pitch','>',0)
+    >>> # abd add it to the pipeline
+    >>> pipeline.add(vl)
+    >>> # loop through all ensembles (this is for now our sink)
+    >>> for ens in pipeline("../data/PF230519.PD0"):
+            pass
+    '''
+
+    def __init__(self):
+        self.reader = PD0()
+        self._operations = []
+
+    def __call__(self, dvl_filenames):
+        return self.build(dvl_filenames)
+    
+    def add(self, new_operation):
+        ''' add a new operation to the pipeline.
+
+        This method takes a generator function and its it to its list of operators. These generator
+        functions of course need to know what to do with an ensemble. Typical functions are qc operations
+        and transformations. All these generator functions take another generator as argument. Some of them
+        also require further arguments. When the pipeline is built, it is assumed that each operations requires
+        a generator argument and a generator argument only. If additional arguments are to be passed, the
+        currying method can be used.
+
+        Parameters
+        ----------
+        new_operation: generator function
+           a new generator function (transformation for example) to be added to the pipeline of operations
+        
+        
+            
+        Examples
+        --------
+        An example of  the currying method.
+
+        >>> p = Pipeline()
+        >>> p.add(lambda g: some_operator(g, other_parameter))
+
+        '''
+        self._operations.append(new_operation)
+
+    def build(self, dvl_filenames):
+        ''' Build the pipeline.
+
+        This method (which is also invoked when the class is called directly) builds the pipeline. The
+        initial generator is constructed by the PD0.ensenmble generator.
+
+        Parameters
+        ----------
+        dvl_filenames: string or list of strings
+             filenames of the DVL PD0 files
+
+        Returns
+        -------
+        generator
+             generator that is typically to be consumed by a sink.
+        '''
+        pipeline = self.reader.ensemble_generator(dvl_filenames)
+        for op in self._operations:
+            pipeline = op(pipeline)
+        return pipeline
 
 
     
