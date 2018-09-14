@@ -95,7 +95,10 @@ class Transform(object):
         ''' Creates a create_transformation_matrix() method from the left and right arguments of the * operator. '''
         T = Transform()
         T.create_transformation_matrix = lambda *x: self.create_transformation_matrix(*x) * ri.create_transformation_matrix(*x)
-        T.transformed_coordinate_system = self.transformed_coordinate_system
+        if self.transformed_coordinate_system:
+            T.transformed_coordinate_system = self.transformed_coordinate_system
+        else:
+            T.transformed_coordinate_system = ri.transformed_coordinate_system
         T.hooks = dict((k,v) for k,v in chain(ri.hooks.items(), self.hooks.items()))
         return T
 
@@ -183,7 +186,9 @@ class Transform(object):
         if self.transformed_coordinate_system:
             ens['fixed_leader']['OriginalCoordXfrm'] = ens['fixed_leader']['CoordXfrm']
             ens['fixed_leader']['CoordXfrm'] = self.transformed_coordinate_system
-
+        else:
+            raise ValueError('Transformed_coordinate_system is NOT set!')
+        
     def gen(self, ensembles):
         ''' generator yielding transformed ensembles.'''
         for ens in ensembles:
@@ -222,7 +227,7 @@ class TransformXYZ_ENU(Transform):
 
 
 class TransformRotation(Transform):
-    def __init__(self, hdg, pitch, roll, transformed_coordinate_system='undefined'):
+    def __init__(self, hdg, pitch, roll, transformed_coordinate_system=None):
         inverse = False
         super().__init__(inverse)
         R = RotationMatrix()

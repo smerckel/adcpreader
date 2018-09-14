@@ -1,6 +1,5 @@
 from collections import defaultdict
-from itertools import tee
-from copy import deepcopy, copy
+from itertools import chain
 import datetime
 import glob
 import os
@@ -18,6 +17,30 @@ TransformationTranslations = dict(Earth = 'east north up error'.split(),
                                   Instrument = 'x y z error'.split(),
                                   Beam = 'beam1 beam2 beam3 beam4'.split())
 
+PARAMETERTRANSLATIONS = dict(XdcrDepth='Depth', Salin='Salinity', Temp='Temperature', Timestamp='Time')
+
+# all know and decoded parameters:
+PARAMETERS = dict(fixed_leader = 'CPU_ver CPU_rev Sys_Freq Beam_Pattern Sensor_Cfg Xdcr_Head Xdcr_Facing Beam_Angle Beam_Cfg Real_Data N_Beams N_Cells N_PingsPerEns DepthCellSize Blank WaterMode CorrThresshold Code_Repts MinPG ErrVelThreshold TimeBetweenPings RawCoordXrfm CoordXfrm CoordXfrmOptions Vel_field1 Vel_field2 Vel_field3 Vel_field4 EA EB Sensors Sensors_Avail FirstBin XmtLength WL_Start WL_End FalseTargetThreshold LagDistance CPUBoardSerial Bandwidth XmtPower SystemSerialNumber'.split(),
+                  variable_leader = 'Ensnum RTC BitResult Soundspeed XdcrDepth Heading Pitch Roll Salin Temp MPT Hdg_SD Pitch_SD Roll_SD ADC ErrorStatus Press PressVar RTCY2K'.split(),
+                  velocity = 'Velocity1 Velocity2 Velocity3 Velocity4'.split(),
+                  correlation = 'Corr1 Corr2 Corr3 Corr4 Corr_AVG'.split(),
+                  echo = 'Echo1 Echo2 Echo3 Echo4 Echo_AVG'.split(),
+                  percent_good = 'PG1 PG2 PG3 PG4'.split(),
+                  bottom_track = 'PPE Delay CorrMin AmpMin PGMin Mode ErrVelMax Range1 Range2 Range3 Range4 BTVel1 BTVel2 BTVel3 BTVel4 Corr1 Corr2 Corr3 Corr4 Amp1 Amp2 Amp3 Amp4 PG1 PG2 PG3 PG4 ReflMin ReflNear ReflFar ReflVel1 ReflVel2 ReflVel3 ReflVel4 ReflCorr1 ReflCorr2 ReflCorr3 ReflCorr4 ReflInt1 ReflInt2 ReflInt3 ReflInt4 ReflPG1 ReflPG2 ReflPG3 ReflPG4 BTdepthMax RSSI1 RSSI2 RSSI3 RSSI4 Gain'.split())
+
+# Parameters that may get added during processing (not present in RDI format):
+PARAMETERS['variable_leader']+=['Timestamp']
+PARAMETERS['fixed_leader']+=['OriginalCoordXfrm']
+
+
+DEFAULT_PARAMETERS = dict(velocity = PARAMETERS['velocity'],
+                          correlation = PARAMETERS['correlation'],
+                          percent_good = PARAMETERS['percent_good'],
+                          variable_leader = 'Timestamp Ensnum Soundspeed XdcrDepth Heading Pitch Roll Salin Temp'.split(),
+                          bottom_track = 'BTVel1 BTVel2 BTVel3 BTVel4 PG1 PG2 PG3 PG4'.split(),  
+                          fixed_leader = 'Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm WaterMode FirstBin SystemSerialNumber OriginalCoordXfrm'.split(),
+                          )
+
 def rad(x):
     return x*np.pi/180.
 
@@ -27,18 +50,20 @@ class Writer(object):
     
     def __init__(self):
         self.output_file = None
-        self.set_default_2D_parameters()
-        self.custom_parameters = dict(scalar=[], vector=[])
-        self.set_custom_parameter('sigma', '*', dtype='vector')
+        self.__set_parameter_list()
 
-    def set_default_2D_parameters(self):
-        parameters2D = dict(velocity='Velocity1 Velocity2 Velocity3 Velocity4'.split(),
-                            echo='Echo1 Echo2 Echo3 Echo4 Echo_AVG'.split(),
-                            percent_good='PG1 PG2 PG3 PG4'.split(),
-                            correlation='Corr1 Corr2 Corr3 Corr4 Corr_AVG'.split())
-        self.parameters2D = parameters2D
-                            
-                            
+    def __set_parameter_list(self):
+        self.parameters = dict(config=[], scalar=[], vector=[])
+        for k in DEFAULT_PARAMETERS['fixed_leader']:
+            self.parameters['config'].append(('fixed_leader',k))
+        for s in ['variable_leader', 'bottom_track']:
+            for k in DEFAULT_PARAMETERS[s]:
+                self.parameters['scalar'].append((s,k))
+        for s in ['velocity', 'correlation', 'percent_good']:
+            for k in DEFAULT_PARAMETERS[s]:
+                self.parameters['vector'].append((s,k))
+        self.custom_parameters = dict(config=[], scalar=[], vector=[])
+        
     def __call__(self, ensembles):
         self.write_ensembles(ensembles)
         
@@ -48,49 +73,82 @@ class Writer(object):
                 self.__write_ensembles(fd, ensembles)
         except TypeError:
             self.__write_ensembles(self.output_file, ensembles)
-
+            
     def set_custom_parameter(self, section, *name, dtype='scalar'):
         for _name in name:
             self.custom_parameters[dtype].append((section, _name))
+
+
+    def clear_parameter_list(self, dtype=None):
+        if dtype is None:
+            for k in list(self.parameters.keys()):
+                self.parameters[k].clear()
+        else:
+            self.parameters[dtype].clear()
+
+    def add_parameter_list(self, section, *p):
+        if section=='fixed_leader':
+            dtype='config'
+        elif section=='variable_leader' or section=='bottom_track':
+            dtype='scalar'
+        else:
+            dtype='vector'
+        for k in p:
+            self.parameters[dtype].append((section,k))
+
+            
             
     def __write_ensembles(self, fd, ensembles):
         config = None
-        data1d = defaultdict(lambda : [])
-        data2d = defaultdict(lambda : [])
+        scalar_data = defaultdict(lambda : [])
+        vector_data = defaultdict(lambda : [])
         for ens in ensembles:
             if not config:
                 config = ens['fixed_leader']
                 self.write_configuration(config, fd)
                 self.write_header(config, fd)
-            self.read_variable_leader(data1d,ens)
-            self.read_onedimdata(data1d, ens)
-            self.read_twodimdata(data2d, ens)
-            self.write_array(config, data1d, data2d, fd)
-            data1d.clear()
-            data2d.clear()
+            self.read_scalar_data(scalar_data,ens)
+            self.read_vector_data(vector_data, ens)
+            self.write_array(config, scalar_data, vector_data, fd)
+            scalar_data.clear()
+            vector_data.clear()
         
-
-    def read_variable_leader(self, data, ens):
-        vld = ens['variable_leader']
+    def __get_keyname(self, s, k):
         try:
-            tm = ens['variable_leader']['Timestamp']
+            kt = PARAMETERTRANSLATIONS[k]
         except KeyError:
-            tm = get_ensemble_time(ens)
-        data['Ens'].append(vld['Ensnum'])
-        data['Time'].append(tm)
-        data['Soundspeed'].append(vld['Soundspeed'])
-        data['Depth'].append(vld['XdcrDepth'])
-        data['Heading'].append(rad(vld['Heading']))
-        data['Pitch'].append(rad(vld['Pitch']))
-        data['Roll'].append(rad(vld['Roll']))
-        data['Salinity'].append(vld['Salin'])
-        data['Temperature'].append(vld['Temp'])
+            kt = k
+        if s == 'variable_leader':
+            m = kt
+        else:
+            m = "%s %s"%(s, kt)
+        return m
     
-    def read_twodimdata(self, data, ens):
-        for k, v in self.parameters2D.items():
-            for vv in v:
-                # do all like data['Velocity1'].append(ens['velocity']['Velocity1'])
-                data[vv].append(ens[k][vv])
+    def read_scalar_data(self, data, ens):
+        for s, k in self.parameters['scalar']:
+            # single out special cases
+            if s=='variable_leader' and k=='Timestamp':
+                try:
+                    tm = ens['variable_leader']['Timestamp']
+                except KeyError:
+                    tm = get_ensemble_time(ens)
+                data['Time'].append(tm)
+                continue
+            kt = self.__get_keyname(s, k)
+            if s=='variable_leader' and k in ['Roll', 'Pitch', 'Heading']:
+                # apply conversion to radians.
+                data[kt].append(rad(ens[s][k]))
+            else:
+                data[kt].append(ens[s][k])
+        # add any customized parameters.
+        for s, p in self.custom_parameters['scalar']:
+            key = "%s %s"%(s,p)
+            data[key].append(ens[s][p])
+    
+    def read_vector_data(self, data, ens):
+        for s, k in self.parameters['vector']:
+            kt = self.__get_keyname(s, k)
+            data[kt].append(ens[s][k])
         # add any customized parameters.
         for s, p in self.custom_parameters['vector']:
             if s not in ens.keys():
@@ -106,24 +164,6 @@ class Writer(object):
                     data[p].append(ens[s][p])
                 except KeyError:
                     pass
-
-    def read_onedimdata(self, data, ens):
-        try: # see if we have bottom track data, if not, ignore.
-            bottom_track = ens['bottom_track']
-        except KeyError:
-            pass
-        else:
-            data['BTVel1'].append(bottom_track['BTVel1'])
-            data['BTVel2'].append(bottom_track['BTVel2'])
-            data['BTVel3'].append(bottom_track['BTVel3'])
-            data['BTVel4'].append(bottom_track['BTVel4'])
-            data['BTPG1'].append(bottom_track['PG1'])
-            data['BTPG2'].append(bottom_track['PG2'])
-            data['BTPG3'].append(bottom_track['PG3'])
-            data['BTPG4'].append(bottom_track['PG4'])
-        # add any customized parameters.
-        for s, p in self.custom_parameters['scalar']:
-            data[p].append(ens[s][p])
 
     def is_masked_array(self,v):
         ''' check whether v is a masked array'''
@@ -150,15 +190,15 @@ class Writer(object):
         else:
             return np.array(v)
         
-        # subclass this class and implement these methods below.
-        def write_configuration(self, config, fd):
-            raise NotImplementedError("This method is not implemented. Subclass this class...")
+    # subclass this class and implement these methods below.
+    def write_configuration(self, config, fd):
+        raise NotImplementedError("This method is not implemented. Subclass this class...")
 
-        def write_header(self, config, fd):
-            raise NotImplementedError("This method is not implemented. Subclass this class...")
+    def write_header(self, config, fd):
+        raise NotImplementedError("This method is not implemented. Subclass this class...")
 
-        def write_array(self,config, data1d, data2d, fd):
-            raise NotImplementedError("This method is not implemented. Subclass this class...")
+    def write_array(self,config, scalar_data, vector_data, fd):
+        raise NotImplementedError("This method is not implemented. Subclass this class...")
 
 # NetCDF format specifiers:
 # just for reference...        
@@ -255,6 +295,7 @@ class NetCDFWriter(Writer):
                 n+=1
                 k=0
                 self.open(n)
+        self.close()
         return i, n+1
     
     # "private" methods
@@ -311,6 +352,7 @@ class NetCDFWriter(Writer):
                 except KeyError:
                     pass
                 else:
+                    print("Ok:", v)
                     if dim == 'onedim':
                         variables[v][k] = value
                     elif dim == 'twodim':
@@ -319,7 +361,7 @@ class NetCDFWriter(Writer):
             variables['time'][k] = ens['variable_leader']['Timestamp']
         except KeyError:
             variables['time'][k] = get_ensemble_time(ens)
-    
+
     def initialise(self, ens):
         n_bins = ens['fixed_leader']['N_Cells']
         dimensions = self.create_dimensions(n_bins)
@@ -342,7 +384,7 @@ class NetCDFWriter(Writer):
 class AsciiWriter(Writer):
     DESCRIPTIONS = {"Earth":"Eastward current-Northward current-Upward current-Error velocity".split("-"),
                     "Beam" :"Beam 1-Beam 2-Beam 3-Beam 4".split("-"),
-                    "Ship" :"Starboardward current-Forward current-Upward current- Error velocity".split("-"),
+                    "Ship" :"Starboard current-Forward current-Upward current-Error velocity".split("-"),
                     "Instrument": "Current in x direction-Current in y direction-Current in z direction-error velocity".split("-")}
                     
     def __init__(self, output_file = sys.stdout, adcp_offset=0):
@@ -362,14 +404,10 @@ class AsciiWriter(Writer):
         
   
     def write_configuration(self, config, fd=sys.stdout):
-        kws = "Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm WaterMode FirstBin SystemSerialNumber".split()
-        kws_added = ['OriginalCoordXfrm'] #these get added during transformations etc.
         fd.write("{}Configuration:\n".format(self.comment))
-        for kw in kws:
-            fd.write("{}{} : {}\n".format(self.comment, kw, config[kw]))
-        for kw in kws_added:
+        for _, v in self.parameters['config']:
             try:
-                fd.write("{}{} : {}\n".format(self.comment, kw, config[kw]))
+                fd.write("{}{} : {}\n".format(self.comment, v, config[v]))
             except KeyError:
                 pass
         fd.write("{}\n".format(self.comment))
@@ -384,7 +422,8 @@ class AsciiWriter(Writer):
         firstbin = config['FirstBin']
         binsize = config['DepthCellSize']
         factor = (int(config['Xdcr_Facing']=='Up')*2-1)
-        for t, u, v, w, verr in zip(data1d['Time'], data2d['Velocity1'], data2d['Velocity2'], data2d['v3'], data2d['v4']):
+        
+        for t, u, v, w, verr in zip(data1d['Time'], data2d['velocity Velocity1'], data2d['velocity Velocity2'], data2d['velocity Velocity3'], data2d['velocity Velocity4']):
             dt = datetime.datetime.utcfromtimestamp(t)
             tstr = dt.strftime("%Y-%m-%dT%H:%M:%S")
             for i, (_u, _v, _w, _verr) in enumerate(zip(u, v, w, verr)):
@@ -413,9 +452,8 @@ class NDFWriter(Writer):
         for ens in ensembles:
             if not config:
                 config = ens['fixed_leader']
-            self.read_variable_leader(data1d,ens)
-            self.read_onedimdata(data1d, ens)
-            self.read_twodimdata(data2d, ens)
+            self.read_scalar_data(data1d, ens)
+            self.read_vector_data(data2d, ens)
         self.write_to_file(config, data1d, data2d)
 
     def write_to_file(self,config, data1d, data2d):
@@ -450,27 +488,19 @@ class NDFWriter(Writer):
         for k, v in data1d.items():
             if k == 'Time':
                 continue
-            if k.startswith("BTVel"):
-                i = int(k.replace("BTVel",""))-1
-                s = TransformationTranslations[config['CoordXfrm']][i]
-                ks = " ".join(["Bottom_track",s])
-            elif k.startswith("BTPG"):
-                ks = k.replace("BTPG","Bottom_track PercentGood")
+            if "BTVel" in k:
+                i = int(k[-1])
+                s = TransformationTranslations[config['CoordXfrm']][i-1]
+                ks = k.replace("BTVel%d"%(i), s)
             else:
                 ks = k
             v = self.array1d_from_list(v)
             data.add_parameter(ks, units[k], (tm, v))
         for k, v in data2d.items():
-            if k.startswith("Velocity"):
-                i = int(k.replace("Velocity",""))-1
-                s = TransformationTranslations[config['CoordXfrm']][i]
-                ks = " ".join(["Velocity",s])
-            elif k.startswith("E"):
-                ks = k.replace("Echo","EchoIntensity")
-            elif k.startswith("C"):
-                ks = k.replace("Corr","Correlation")
-            elif k.startswith("PG"):
-                ks = k.replace("PG","PercentGood")
+            if "Velocity" in k:
+                i = int(k[-1])
+                s = TransformationTranslations[config['CoordXfrm']][i-1]
+                ks = k.replace("Velocity%d"%(i), s)
             else:
                 ks = k
             v = self.array2d_from_list(v)
@@ -486,12 +516,42 @@ class NDFWriter(Writer):
         return data
 
 
-class Tee(object):
-    def copy(self, ensembles):
-        for ens in ensembles:
-            yield deepcopy(ens)
-            
-    def __call__(self, ensembles):
-        g1, g2 = tee(ensembles, 2)
-        return self.copy(g1), self.copy(g2)
+class DataStructure(Writer):
+    ''' Simple in memory data structure '''
+    def __init__(self):
+        super().__init__()
+        self.data = defaultdict(lambda : [])
         
+    def __getattr__(self, item):
+        if item in self.data.keys():
+            if isinstance(self.data[item], list):
+                if self.data[item]:
+                    if isinstance(self.data[item][0], float):
+                        self.data[item] = np.ma.hstack(self.data[item])
+                    else:
+                        self.data[item] = np.ma.vstack(self.data[item])
+            return self.data[item]
+        else:
+            raise AttributeError("%s has no attribute '%s'."%(self, item))
+            
+    def write_configuration(self, config, fd):
+        pass
+    
+    def write_header(self, config, fd):
+        pass
+
+    def write_array(self, config, scalar_data, vector_data, fd):
+        transform = config['CoordXfrm']        
+        for k, v in chain(scalar_data.items(), vector_data.items()):
+            try:
+                s, m = k.split()
+            except ValueError:
+                ks = k
+            else:
+                if (s=='velocity' or s=='bottom_track') and ("Vel" in m):
+                    i = int(m[-1])
+                    t = TransformationTranslations[transform][i-1]
+                    ks = "_".join((s, t))
+                else:
+                    ks = k.replace(" ", "_")
+            self.data[ks]+=v
