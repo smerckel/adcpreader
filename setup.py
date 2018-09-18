@@ -11,7 +11,7 @@ from distutils.core import setup
 
 setup(name="rdi",
       version=version,
-      packages = ["rdi"],
+      packages = ["rdi", "slocum"],
       scripts = ['pd0rename.py'],
       author = "Lucas Merckelbach",
       author_email = "lucas.merckelbach@hzg.de",
