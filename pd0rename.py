@@ -63,7 +63,7 @@ for j,fn in enumerate(pd0s):
     t_pd0.append(tm)
     f_pd0.append(fn)
 
-sys.sdtout.write("Found %d PD0 files.\n"%(len(t_pd0)))
+sys.stdout.write("Found %d PD0 files.\n"%(len(t_pd0)))
 
 n_processed = 0
 for fn in fns:
@@ -91,7 +91,7 @@ for fn in fns:
             for i in found:
                 with open(f_pd0[i], 'br') as fin:
                     fpout.write(fin.read())
-        sys.write("%3d %s (%d)\n"%(n_processed, target_file, len(found)))
+        sys.stdout.write("%3d %s (%d)\n"%(n_processed, target_file, len(found)))
 
 
 
