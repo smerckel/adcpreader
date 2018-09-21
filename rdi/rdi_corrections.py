@@ -366,14 +366,17 @@ class Injector(object):
             yield ens
         
 class ReadAhead(object):
-    def __init__(self, maxlen):
-        self.maxlen = maxlen
-
+    def __init__(self, window_length, centered=False):
+        self.window_length = window_length
+        self.required_length = window_length
+        if centered:
+            self.required_length//=2
+        
     def __call__(self,g):
         return self.gen(g)
         
     def gen(self, g):
-        self.in_q = deque(maxlen = self.maxlen)
+        self.in_q = deque(maxlen = self.window_length)
         memo = []
         n = 0
         for v in g:
@@ -388,7 +391,7 @@ class ReadAhead(object):
         for i in range(n):
             r = self.process(None)
             s = memo.pop(0)
-            yield s,r
+            yield s, r
 
     def process(self, v):
         if not v is None:
@@ -398,9 +401,56 @@ class ReadAhead(object):
                 self.in_q.popleft()
             except IndexError:
                 return None
-        if len(self.in_q)<=self.maxlen//2:
+        if len(self.in_q)<self.required_length:
             return None
-        return self.in_q
+        return list(self.in_q)
+
+
+class AdvanceAttitudeAngles(object):
+    ''' Advance attitude data
+
+    It has been observed that the attitude data, stored in the ensembles
+    are usually about 8 seconds old. It seems that the other data are in 
+    fact in sync with the glider data. This class implements a generator 
+    to correct the pitch, heading and roll angles, reported in each ensemble.
+    
+    Parameters
+    ----------
+    dt : float
+         (positive) time that pitch angles are delayed.
+    window_length : int
+         the number of pings that should be looked ahead
+
+    Note
+    ----
+    The window_length should be large enough that it contains pings at least
+    dt seconds later than the current one. This depends on the sampling interval.
+    '''
+    
+    def __init__(self, dt, window_length):
+        self.dt = dt
+        self.read_ahead = ReadAhead(window_length)
+        
+    def __call__(self, g):
+        for ens in self.gen_interpolate_angles(self.read_ahead(g)):
+            yield ens
+
+    def gen_interpolate_angles(self, s):
+        ''' A generated that updates the times of the attitude angles
+
+        Parameters
+        ----------
+        s : generator ReadAhead
+        '''
+        for ens, queue in s:
+            if not queue is None:
+                t = [q['variable_leader']['Timestamp'] for q in queue]
+                p = [q['variable_leader']['Pitch'] for q in queue]
+                ens['variable_leader']['Pitchp'] = np.interp(t[0]+self.dt, t, p)
+                yield ens
+            else:
+                continue
+
 
     
 class COG_Offset_Correction(object):
