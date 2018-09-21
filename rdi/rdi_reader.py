@@ -485,8 +485,17 @@ class Ensemble(object):
 class PD0(object):
     BUFFER_SIZE = 524288 # 512 blocks of 1024
     ''' Class to process one or multiple PD0 files.
+
+    Parameters
+    ----------
+    add_unix_timestamp : bool
+        if True, adds Timestamp field to variable_leader containing time as unix time.
     '''
-    
+
+    def __init__(self, add_unix_timestamp=True, baseyear=2000):
+        self.add_unix_timestamp = add_unix_timestamp
+        self.baseyear = baseyear
+        
     def ensemble_generator_per_file(self, filename):
         ''' Generator returning ensembles for a single filename.
         
@@ -529,7 +538,9 @@ class PD0(object):
                 ensemble = Ensemble(data[idx:idx_next]).decode()
                 # strip returned data from data...
                 data = data[idx_next:]
-
+                if self.add_unix_timestamp:
+                    tm = get_ensemble_time(ensemble, self.baseyear)
+                    ensemble['variable_leader']['Timestamp'] = tm
                 yield ensemble
                 
         
