@@ -11,15 +11,17 @@ import dbdreader
 from rdi import rdi_reader, rdi_transforms, rdi_corrections, rdi_writer, rdi_qc
 
     
-def get_filenames(datadir, n_files = None, start = 0):
-    pattern = os.path.join(datadir, "adcp", "comet*.PD0")
+def get_filenames(datadir, glider, n_files = None, start = 0, pd0_extension='pd0'):
+    pattern = os.path.join(datadir, "adcp", "%s*.%s"%(glider,pd0_extension))
     filenames = glob.glob(pattern)
     filenames.sort()
     n_files = n_files or len(filenames)
     n_files = min(n_files, len(filenames)-start)
     dvl_filenames = filenames[start:start+n_files]
     #
-    gld_filenames = [i.replace("adcp", "hd").replace("PD0", "dbd") for i in dvl_filenames]
+    gld_filenames = [i.replace("adcp", "hd").replace(pd0_extension, "dbd") for i in dvl_filenames]
+    if not len(dvl_filenames) or not len(gld_filenames):
+        raise ValueError('Found %d dvl files and %d glider files'%(len(dvl_filenames), len(gld_filenames)))
     return dvl_filenames, gld_filenames
 
 
@@ -31,6 +33,12 @@ class DVL_GliderPitchBase(object):
     def __init__(self, config_filename):
         self.read_config(config_filename)
         self.pipeline = rdi_reader.Pipeline()
+
+    def read_config_optional(self, conf, parameter, default, dtype):
+        try:
+            self.config[parameter] = dtype(conf[parameter])
+        except KeyError:
+            self.config[parameter]=default
         
     def read_config(self, config_filename):
         ''' read a config file
@@ -50,18 +58,17 @@ class DVL_GliderPitchBase(object):
                            outputfilename=conf['outputfilename'],
                            roll_mean = float(conf['roll_mean']),
                            dvl_roll_offset = float(conf['dvl_roll_offset']),
-                           dvl_time_offset = float(conf['dvl_time_offset']),
+                           att_time_offset = float(conf['att_time_offset']),
                            n_files = int(conf['n_files']),
                            start_file = int(conf['start_file']),
+                           glider = conf['glider'],
                            )
-        try:
-            self.config['density'] = float(conf['water_density'])
-        except KeyError:
-            self.config['density']=1025
-        try:
-            self.config['salinity'] = float(conf['water_salinity'])
-        except KeyError:
-            self.config['salinity']=35
+        self.read_config_optional(conf, 'water_density', 1025, float)
+        self.read_config_optional(conf, 'water_salinity', 35, float)
+        self.read_config_optional(conf, 'pd0_extension', 'pd0', str)
+        self.read_config_optional(conf, 'pitch_offset', 0, float)
+        self.read_config_optional(conf, 'fit', 'linear', str)
+        self.read_config_optional(conf, 'coord', 'BEAM', str)
             
     def write_default_config(self, config_filename):
         ''' write a default config file
@@ -81,11 +88,13 @@ class DVL_GliderPitchBase(object):
         conf['outputfilename']='noname.ndf'
         conf['roll_mean'] = 0.0
         conf['dvl_roll_offset'] = 0.0
-        conf['dvl_time_offset'] = 0.0
+        conf['att_time_offset'] = 0.0
         conf['n_files'] = 10
         conf['start_file'] = 0
         conf['water_density'] = 1025
         conf['date'] = 'today'
+        conf['pd0_extension'] = 'pd0'
+        conf['coord'] = 'BEAM'
         conf.write()
             
 
@@ -106,21 +115,34 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         bottomtrack_filter.set_discard_condition('bottom_track', 'BTVel1','||>', 0.75)
         bottomtrack_filter.set_discard_condition('bottom_track', 'BTVel2','||>', 0.75)
         bottomtrack_filter.set_discard_condition('bottom_track', 'BTVel3','||>', 0.75)
+        bottomtrack_filter.set_discard_condition('bottom_track', 'Range3','>', 60)
 
-        # note: the order of multiplication is reversed wrt the sequence of applying...
-        transform = rdi_transforms.TransformXYZ_FSU(0, self.MOUNT_PITCH, roll_offset)
-        transform *= rdi_transforms.TransformFSU_XYZ(0, self.MOUNT_PITCH, 0)
-        transform *= rdi_transforms.TransformENU_FSU()
-
-        self.pipeline.add(bottomtrack_filter)
+        if self.config['coord'] == 'ENU':
+            # note: the order of multiplication is reversed wrt the sequence of applying...
+            transform = rdi_transforms.TransformXYZ_FSU(0, self.MOUNT_PITCH, roll_offset)
+            transform *= rdi_transforms.TransformFSU_XYZ(0, self.MOUNT_PITCH, 0)
+            transform *= rdi_transforms.TransformENU_FSU()
+        elif self.config['coord'] == 'BEAM':
+            # note: the order of multiplication is reversed wrt the sequence of applying...
+            transform = rdi_transforms.TransformXYZ_FSU(0, self.MOUNT_PITCH, roll_offset)
+            transform *= rdi_transforms.TransformBEAM_XYZ()
+        else:
+            raise ValueError('Unhandled case.')
         self.pipeline.add(transform)
+        self.pipeline.add(bottomtrack_filter)
 
+        
     def __cost_fun(self, x, pitch, by, bz, wg):
         a, b = x
         wgp = -np.sin(pitch*a+b)*by -np.cos(pitch*a+b)*bz
         return np.linalg.norm(wg-wgp)
 
-    def get_depth_rate(self, data):
+    def __cost_fun_proportional(self, x, pitch, by, bz, wg, b):
+        a = x
+        wgp = -np.sin(pitch*a+b)*by -np.cos(pitch*a+b)*bz
+        return np.linalg.norm(wg-wgp)
+
+    def get_depth_rate(self, data, gld_fns):
         ''' get depth-rate and pitch from glider data
         
         This method computes the depth rate from the pressure sensor and reads the pitch
@@ -128,13 +150,12 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         Parameters
         ----------
         data : rdi_writer.DataStructure
-
+        gld_fns : list of strings
+            list of glider binary filenames
         Returns
         -------
         depth-rate, pitch : (array, array)
         '''
-        _, gld_fns = get_filenames(self.config['datadir'],
-                                   self.config['n_files'], self.config['start_file'])
         t = data.Time
         dbd = dbdreader.MultiDBD(filenames = gld_fns, include_paired = True)
         #tg, m_depth_rate = dbd.get("m_depth_rate")
@@ -144,7 +165,7 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         tmp = dbd.get_sync("m_water_pressure", ["m_pitch"])
         tg, P, pitch = tmp
         
-        m_depth_rate = np.gradient(P*1e5/self.config['density']/9.81)/np.gradient(tg)
+        m_depth_rate = np.gradient(P*1e5/self.config['water_density']/9.81)/np.gradient(tg)
         #m_depth_rate = np.convolve(m_depth_rate, np.ones(5)/5, 'same')
         wg = np.interp(t, tg, -m_depth_rate)
         pitch_ = np.interp(t, tg, pitch)
@@ -175,11 +196,21 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         # based on this one, just keep those values for which the
         # estimated value for depth_rate differs less than 3 cm/s compared to
         # the depth rate, to remove outliers.
-        idx = np.where(np.isfinite(by+bz+pitch+depth_rate))[0]
-        a,b  = fmin(self.__cost_fun, [0.82, 0], args=(pitch[idx], by[idx], bz[idx], depth_rate[idx]))
-        wgp = -np.sin(pitch*a+b)*by -np.cos(pitch*a+b)*bz
-        idx = np.where(np.abs(depth_rate-wgp)<0.03)[0]
-        a,b  = fmin(self.__cost_fun, [0.83, 0], args=(pitch[idx], by[idx], bz[idx], depth_rate[idx]))
+        if self.config['fit']=='linear':
+            idx = np.where(np.isfinite(by+bz+pitch+depth_rate))[0]
+            a,b  = fmin(self.__cost_fun, [0.82, 0], args=(pitch[idx], by[idx], bz[idx], depth_rate[idx]))
+            wgp = -np.sin(pitch*a+b)*by -np.cos(pitch*a+b)*bz
+            idx = np.where(np.abs(depth_rate-wgp)<0.03)[0]
+            a,b  = fmin(self.__cost_fun, [0.83, 0], args=(pitch[idx], by[idx], bz[idx], depth_rate[idx]))
+        elif self.config['fit']=='proportional':
+            b = self.config['pitch_offset']
+            idx = np.where(np.isfinite(by+bz+pitch+depth_rate))[0]
+            a  = fmin(self.__cost_fun_proportional, 0.82,
+                        args=(pitch[idx], by[idx], bz[idx], depth_rate[idx], b))
+            wgp = -np.sin(pitch*a+b)*by -np.cos(pitch*a+b)*bz
+            idx = np.where(np.abs(depth_rate-wgp)<0.03)[0]
+            a  = fmin(self.__cost_fun_proportional, 0.83, args=(pitch[idx], by[idx], bz[idx], depth_rate[idx],b))
+            a=float(a)
         return a, b
 
    
@@ -194,16 +225,18 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         float, float
             scaling factor for pitch, pitch offset
         '''
-        dvl_fns, gld_fns = get_filenames(self.config['datadir'],
-                                         self.config['n_files'], self.config['start_file'])
+        dvl_fns, gld_fns = get_filenames(self.config['datadir'], self.config['glider'],
+                                         n_files = self.config['n_files'], start = self.config['start_file'],
+                                         pd0_extension=self.config['pd0_extension'])
 
         self.setup_pipeline()
         sink = rdi_writer.DataStructure()
+        sink.add_parameter_list("bottom_track", "Range1", "Range2", "Range3", "Range4")
         sink(self.pipeline(dvl_fns))
 
         # correct DVL time for offset
-        sink.Time+= self.config['dvl_time_offset']
-        depth_rate, pitch = self.get_depth_rate(sink)
+        sink.Time+= self.config['att_time_offset']
+        depth_rate, pitch = self.get_depth_rate(sink, gld_fns)
         
         a,b = self.fit_to_depth_rate(sink, depth_rate)
 
@@ -253,7 +286,7 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         figure, axis
 
         '''
-        t_offset = self.config['dvl_time_offset']
+        t_offset = self.config['att_time_offset']
         t = data.Time
         pitch_c = data.Pitch*a + b
         by = data.bottom_track_forward
@@ -301,7 +334,7 @@ class DVL_GliderPitch(DVL_GliderPitchBase):
         '''
         roll_offset = -self.config['roll_mean'] + self.config['dvl_roll_offset']
 
-        timeshifter = rdi_corrections.Timeshifter(self.config['dvl_time_offset'])
+        adv_att = rdi_corrections.AdvanceAttitudeAngles(-self.config['att_time_offset'], window_length=10)
         
         # note: the order of multiplication is reversed wrt the sequence of applying...
         # brings to Beam coordinates
@@ -344,12 +377,13 @@ class DVL_GliderPitch(DVL_GliderPitchBase):
         # Speed of sound correction
         c = rdi_corrections.SpeedOfSoundCorrection()
 
-        self.pipeline.add(timeshifter)
+        self.pipeline.add(adv_att)
         self.pipeline.add(qc_u_limit)
         self.pipeline.add(qc_snr_limit)
         self.pipeline.add(qc_amplitude_limit)
         self.pipeline.add(transform0)
-        self.pipeline.add(lambda g: c.current_correction_at_transducer_from_salinity(g, self.config['salinity']))
+        self.pipeline.add(lambda g:
+                          c.current_correction_at_transducer_from_salinity(g, self.config['water_salinity']))
         self.pipeline.add(transform1)
         self.pipeline.add(att_cor)
         self.pipeline.add(transform2)
@@ -357,7 +391,8 @@ class DVL_GliderPitch(DVL_GliderPitchBase):
     def process(self):
         ''' Process the PD0 files as given in the configuration file
         '''
-        dvl_fns, gld_fns = get_filenames(self.config['datadir'])
+        dvl_fns, gld_fns = get_filenames(self.config['datadir'], self.config['glider'],
+                                         pd0_extension=self.config['pd0_extension'])
 
         self.setup_pipeline()
         writer = rdi_writer.NDFWriter()
