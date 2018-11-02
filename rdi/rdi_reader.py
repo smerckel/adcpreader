@@ -136,8 +136,6 @@ class Ensemble(object):
     The constructor can take the data_offsets dictionary. If given, the offsets are not
     read from the binary data block, but assumed to be known.
     '''
-    # Conversion of counts to decibel.
-    ECHO_DB = 0.45
     
     def __init__(self, bin_data, data_offsets=()):
         ''' constructor method
@@ -387,7 +385,7 @@ class Ensemble(object):
         Returns a dictionary with values.
         '''
         echo = OrderedDict()
-        v = np.array(self.get_byte(n = n_cells*n_beams), dtype=float) * self.ECHO_DB
+        v = np.array(self.get_byte(n = n_cells*n_beams), dtype=float)
         v = v.reshape(n_cells, n_beams).T
         for j in range(n_beams):
             k = 'Echo%d'%(j+1)
@@ -495,14 +493,52 @@ class PD0(object):
     def __init__(self, add_unix_timestamp=True, baseyear=2000):
         self.add_unix_timestamp = add_unix_timestamp
         self.baseyear = baseyear
+
+    def get_info(self, filename):
+        ''' Get start/end end size information of a PD0 file
+
+        Parameters
+        ----------
+        filename : string
+            filename or path pointing to PD0 file
+
+        Returns
+        -------
+        time_start : float
+            time of first ensemble
+        time_end : float
+            time of last ensemble
+        number_of_ensembles : int
+            number of ensembles present in this file.
+        '''
+        # read the first ensemble (only)
+        for ens in self.ensemble_generator_per_file(filename):
+            break
+        block_size = self.size_of_ensemble
+        time_start = ens['variable_leader']['Timestamp']
+        num_start = ens['variable_leader']['Ensnum']
+        # read last ensemble
+        for ens in self.ensemble_generator_per_file(filename, fd_offset = -block_size):
+            break
+        time_end = ens['variable_leader']['Timestamp']
+        num_end = ens['variable_leader']['Ensnum']
+        number_of_ensembles = num_end-num_start + 1 # add one because of reading the first
+        return time_start, time_end, number_of_ensembles
         
-    def ensemble_generator_per_file(self, filename):
+    def ensemble_generator_per_file(self, filename, fd_offset = None):
         ''' Generator returning ensembles for a single filename.
         
         Parameters
         ----------
         filename: string 
             string representing filename
+
+        fd_offset: byte
+            offset from where the first data should be read from. 
+            Positive values: so many bytes from the beginning of the file
+            Negative values: so many bytes from the end of the file.
+
+            Default: None (no offset applied)
         
         Returns
         -------
@@ -512,6 +548,12 @@ class PD0(object):
         buffer_size = PD0.BUFFER_SIZE
 
         with open(filename, 'rb') as fd:
+            if not fd_offset is None:
+                if fd_offset<0:
+                    whence = 2
+                else:
+                    whence = 0
+                fd.seek(fd_offset, whence) # move file descriptor to required position
             data = fd.read(buffer_size)
             is_fd_consumed = len(data)<buffer_size
             while True:
@@ -536,6 +578,7 @@ class PD0(object):
                     continue
 
                 ensemble = Ensemble(data[idx:idx_next]).decode()
+                self.size_of_ensemble = idx_next-idx
                 # strip returned data from data...
                 data = data[idx_next:]
                 if self.add_unix_timestamp:
@@ -618,7 +661,7 @@ class Pipeline(object):
                |____________________________|  
                     pipeline of operations
 
-    Any number of operations can be added to the pipeline. The source is assumed to be an ensemble
+g    Any number of operations can be added to the pipeline. The source is assumed to be an ensemble
     generator PD0.ensemble_generator(), which is automatically invoked when calling the pipeline.
 
     Examples
