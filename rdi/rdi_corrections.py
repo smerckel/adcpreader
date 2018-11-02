@@ -136,6 +136,32 @@ class MotionBias(object):
             yield ens
             
     
+class ScaleEchoIntensities(object):
+    ''' Class to scale the echo intensities.
+
+    Parameters
+    ----------
+    
+    factor_beam1 : factor to correct the EI for beam1
+    factor_beam2 : factor to correct the EI for beam2
+    factor_beam3 : factor to correct the EI for beam3
+    factor_beam4 : factor to correct the EI for beam4
+
+
+    '''
+    
+    def __init__(self, factor_beam1 = 1.0, factor_beam2 = 1.0, factor_beam3 = 1.0, factor_beam4 = 1.0):
+        self.factors = [factor_beam1, factor_beam2, factor_beam3, factor_beam4]
+        
+    def __call__(self, ensembles):
+        return self.gen(ensembles)
+    
+    def gen(self, ensembles):
+        for ens in ensembles:
+            for i, f in enumerate(self.factors):
+                ens['echo']['Echo%d'%(i+1)]*=f
+            ens['echo']['Echo_AVG'] = np.array([ens['echo']['Echo%d'%(i+1)] for i in range(4)]).mean(axis=0)
+            yield ens
 
 class Aggregator(object):
     '''Class to aggregate a number of ensembles into averages of time,
