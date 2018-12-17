@@ -28,7 +28,7 @@ class AcousticAbsorption(object):
         alpha_db_per_km += 0.52*(1+T/43)*(S/35)*f2*fkhz**2/(f2**2+fkhz**2)*np.exp(-D/6)
         alpha_db_per_km += 4.9e-4*fkhz**2*np.exp(-(T/27+D/17))
         alpha_db_per_m = alpha_db_per_km*1e-3 # per m
-        alpha_np_per_m = alpha_db_per_m * 0.2302
+        alpha_np_per_m = alpha_db_per_m * 0.23025
         return alpha_np_per_m
 
     def __call__(self,f, T, S, z, pH=7):
@@ -39,8 +39,11 @@ class AcousticCrossSection(object):
         
     A new section 'sigma' is created with the variabels Sigma1..4, and Sigma_AVG.
 
+    db_per_count: about 0.61 for DVL Explorer (see manual)
+
+
     '''
-    def __init__(self, S=None, k_t=1e-8, N_t=45, db_per_count=[0.3852]*4):
+    def __init__(self, S=None, k_t=1e-8, N_t=45, db_per_count=[0.61]*4):
         self.S = S
         self.__data=[k_t, N_t, db_per_count]
         self.alpha = AcousticAbsorption()
@@ -62,7 +65,6 @@ class AcousticCrossSection(object):
         else:
             raise ValueError('Unknown frequency unit')
         frequency = float(value)*factor
-        
         # get beam angle
         s = fld['Beam_Angle'] # '20 Degree'
         beam_angle = float(s.split()[0])*np.pi/180.
