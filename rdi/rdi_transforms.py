@@ -14,9 +14,9 @@ Examples
     >>> bindata = pd0.PD0()
     >>> ensembles = bindata.ensemble_generator(filenames)
 
-    >>> t1 = TransformENU_FSU()
-    >>> t2 = TransformFSU_XYZ(hdg=0, pitch=0.1919, roll=0)
-    >>> t3 = TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
+    >>> t1 = TransformENU_SFU()
+    >>> t2 = TransformSFU_XYZ(hdg=0, pitch=0.1919, roll=0)
+    >>> t3 = TransformXYZ_SFU(hdg=0, pitch=0.2239, roll=0.05)
 
     >>> t4 = t3*t2*t1
 
@@ -33,6 +33,7 @@ from itertools import chain
 import numpy as np
 
 from rdi import __VERSION__
+from rdi.coroutine import coroutine, Coroutine
 
 Attitude = namedtuple('Attitude', 'hdg pitch roll')
 Beamconfig = namedtuple('Beamconfig', 'a b c d facing')
@@ -71,7 +72,7 @@ class TransformMatrix(object):
 
 
     
-class Transform(object):
+class Transform(Coroutine):
     ''' Base transform class.
 
     Implements the transformations and multiplication, but not the definition of the rotation matrix.
@@ -86,12 +87,24 @@ class Transform(object):
     UPDATE_CORRECTIONS = True
     
     def __init__(self, inverse = False):
+        super().__init__()
         self.inverse = inverse
         self.hooks = {}
+        self.coro_fun = self.coro_transform_ensembles()
+
+    @coroutine
+    def coro_transform_ensembles(self):
+        ''' coroutine  transforming ensembles.'''
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                self.transform_velocities_in_ensemble(ens)
+                self.send(ens)
+        self.close_coroutine()
         
-    def __call__(self,ensembles):
-        return self.gen(ensembles)
-    
     def __mul__(self, ri):
         ''' Creates a create_transformation_matrix() method from the left and right arguments of the * operator. '''
         T = Transform()
@@ -190,13 +203,8 @@ class Transform(object):
         else:
             raise ValueError('Transformed_coordinate_system is NOT set!')
         
-    def gen(self, ensembles):
-        ''' generator yielding transformed ensembles.'''
-        for ens in ensembles:
-            self.transform_velocities_in_ensemble(ens)
-            yield ens
             
-class TransformFSU_ENU(Transform):
+class TransformSFU_ENU(Transform):
     def __init__(self, inverse = False):
         super().__init__(inverse)
         if inverse:
@@ -256,7 +264,7 @@ class TransformBEAM_XYZ(Transform):
                 self.R = np.linalg.inv(self.R) # Transpose is not okay for non-rotational matrices.
             return self.R
         
-class TransformXYZ_FSU(Transform):
+class TransformXYZ_SFU(Transform):
     def __init__(self, hdg, pitch, roll, inverse = False):
         super().__init__(inverse)
         self.attitude = Attitude(hdg, pitch, roll)
@@ -279,14 +287,14 @@ class TransformXYZ_FSU(Transform):
                 self.R = R(hdg, pitch, roll)
             return self.R
 
-class TransformFSU_XYZ(TransformXYZ_FSU):
-    ''' Transformation of FSU to XYZ using the angles set to transform from XYZ to FSU '''
+class TransformSFU_XYZ(TransformXYZ_SFU):
+    ''' Transformation of SFU to XYZ using the angles set to transform from XYZ to SFU '''
     def __init__(self, hdg, pitch, roll, inverse = False):
         super().__init__(hdg, pitch, roll, not inverse)
 
 
-class TransformENU_FSU(TransformFSU_ENU):
-    ''' Transformation of ENU to FSU using the angles set to transform from FSU to ENU '''
+class TransformENU_SFU(TransformSFU_ENU):
+    ''' Transformation of ENU to SFU using the angles set to transform from SFU to ENU '''
     def __init__(self, inverse = False):
         super().__init__(not inverse)
 

@@ -12,6 +12,8 @@ import ndf
 from rdi import __VERSION__
 from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
 
+from rdi.coroutine import coroutine, Coroutine
+
 TransformationTranslations = dict(Earth = 'east north up error'.split(),
                                   Ship = 'starboard forward up error'.split(),
                                   Instrument = 'x y z error'.split(),
@@ -45,41 +47,49 @@ def rad(x):
     return x*np.pi/180.
 
 
-class Writer(object):
+class Writer(Coroutine):
     YEAR = 2000
     
     def __init__(self):
-        self.output_file = None
+        super().__init__()
         self.__set_parameter_list()
-
-    def __set_parameter_list(self):
-        self.parameters = dict(config=[], scalar=[], vector=[])
-        for k in DEFAULT_PARAMETERS['fixed_leader']:
-            self.parameters['config'].append(('fixed_leader',k))
-        for s in ['variable_leader', 'bottom_track']:
-            for k in DEFAULT_PARAMETERS[s]:
-                self.parameters['scalar'].append((s,k))
-        for s in ['velocity', 'correlation', 'percent_good']:
-            for k in DEFAULT_PARAMETERS[s]:
-                self.parameters['vector'].append((s,k))
-        self.custom_parameters = dict(config=[], scalar=[], vector=[])
         
-    def __call__(self, ensembles):
-        self.write_ensembles(ensembles)
+    @coroutine
+    def coro_write_ensembles(self,fd):
+        config = None
+        scalar_data = defaultdict(lambda : [])
+        vector_data = defaultdict(lambda : [])
+        while True:
+            try:
+                ensemble = (yield)
+                config = self.__write_ensemble(ensemble, fd, config, scalar_data, vector_data)
+            except GeneratorExit:
+                break
         
-    def write_ensembles(self, ensembles):
-        try:
-            with open(self.output_file, 'w') as fd:
-                self.__write_ensembles(fd, ensembles)
-        except TypeError:
-            self.__write_ensembles(self.output_file, ensembles)
-            
     def set_custom_parameter(self, section, *name, dtype='scalar'):
+        ''' Mark a non-standard parameter as one that should be written to file.
+
+        Parameters
+        ----------
+        section : string
+                  name of the section the parameter lives in (key of ensemble dictionary)
+        *name   : variable list of arguments of parameters within this section
+        dtype   : string
+                  specifies the data type (scalar or vector)
+        '''
         for _name in name:
             self.custom_parameters[dtype].append((section, _name))
 
-
     def clear_parameter_list(self, dtype=None):
+        ''' Clear a parameter list
+        
+        Parameters
+        ----------
+        dtype : string
+                datatype (config, scalar or vector)
+
+        Clears all parameters, or only scalar or vectors
+        '''
         if dtype is None:
             for k in list(self.parameters.keys()):
                 self.parameters[k].clear()
@@ -87,6 +97,15 @@ class Writer(object):
             self.parameters[dtype].clear()
 
     def add_parameter_list(self, section, *p):
+        ''' Add parameters from a section to the parameter list
+        
+        Parameters
+        ----------
+        section : string
+                  name of section. The section "fixed_leader" has datatype "config", 
+                  the sections "variable_leader" and "bottom_track" are of dataype scalar, 
+                  and all others are vectors.
+        '''
         if section=='fixed_leader':
             dtype='config'
         elif section=='variable_leader' or section=='bottom_track':
@@ -95,36 +114,17 @@ class Writer(object):
             dtype='vector'
         for k in p:
             self.parameters[dtype].append((section,k))
-
             
-            
-    def __write_ensembles(self, fd, ensembles):
-        config = None
-        scalar_data = defaultdict(lambda : [])
-        vector_data = defaultdict(lambda : [])
-        for ens in ensembles:
-            if not config:
-                config = ens['fixed_leader']
-                self.write_configuration(config, fd)
-                self.write_header(config, fd)
-            self.read_scalar_data(scalar_data,ens)
-            self.read_vector_data(vector_data, ens)
-            self.write_array(config, scalar_data, vector_data, fd)
-            scalar_data.clear()
-            vector_data.clear()
-        
-    def __get_keyname(self, s, k):
-        try:
-            kt = PARAMETERTRANSLATIONS[k]
-        except KeyError:
-            kt = k
-        if s == 'variable_leader':
-            m = kt
-        else:
-            m = "%s %s"%(s, kt)
-        return m
-    
     def read_scalar_data(self, data, ens):
+        ''' Reads scalar data from ensemble ens and stores it in data
+
+        Parameters
+        ----------
+        data : dictionary
+               data dictionary
+        ens  : dictionary
+               ensemble dictionary
+        '''
         for s, k in self.parameters['scalar']:
             # single out special cases
             if s=='variable_leader' and k=='Timestamp':
@@ -146,6 +146,16 @@ class Writer(object):
             data[key].append(ens[s][p])
     
     def read_vector_data(self, data, ens):
+        ''' Reads vector data from ensemble ens and stores it in data
+
+        Parameters
+        ----------
+        data : dictionary
+               data dictionary
+        ens  : dictionary
+               ensemble dictionary
+        '''
+
         for s, k in self.parameters['vector']:
             kt = self.__get_keyname(s, k)
             data[kt].append(ens[s][k])
@@ -166,7 +176,17 @@ class Writer(object):
                     pass
 
     def is_masked_array(self,v):
-        ''' check whether v is a masked array'''
+        ''' Checks whether v is a masked array
+        
+        Parameters
+        ----------
+        v : array-like
+
+        Returns
+        -------
+        ma : boolean
+             True is v is masked_array. False otherwise
+        '''
         g = (_v for _v in v)
         ma = False
         for _v in g:
@@ -199,6 +219,47 @@ class Writer(object):
 
     def write_array(self,config, scalar_data, vector_data, fd):
         raise NotImplementedError("This method is not implemented. Subclass this class...")
+
+    # Private methods
+    def __write_ensemble(self, ensemble, fd, config, scalar_data, vector_data):
+        # method that does the actual writing
+        if not config:
+            config = ensemble['fixed_leader']
+            self.write_configuration(config, fd)
+            self.write_header(config, fd)
+        self.read_scalar_data(scalar_data,ensemble)
+        self.read_vector_data(vector_data, ensemble)
+        self.write_array(config, scalar_data, vector_data, fd)
+        scalar_data.clear()
+        vector_data.clear()
+        return config
+    
+
+    def __set_parameter_list(self):
+        # sets the default parameters lists from DEFAULT PARAMETERS
+        self.parameters = dict(config=[], scalar=[], vector=[])
+        for k in DEFAULT_PARAMETERS['fixed_leader']:
+            self.parameters['config'].append(('fixed_leader',k))
+        for s in ['variable_leader', 'bottom_track']:
+            for k in DEFAULT_PARAMETERS[s]:
+                self.parameters['scalar'].append((s,k))
+        for s in ['velocity', 'correlation', 'percent_good']:
+            for k in DEFAULT_PARAMETERS[s]:
+                self.parameters['vector'].append((s,k))
+        self.custom_parameters = dict(config=[], scalar=[], vector=[])
+
+            
+    def __get_keyname(self, s, k):
+        try:
+            kt = PARAMETERTRANSLATIONS[k]
+        except KeyError:
+            kt = k
+        if s == 'variable_leader':
+            m = kt
+        else:
+            m = "%s %s"%(s, kt)
+        return m
+    
 
 # NetCDF format specifiers:
 # just for reference...        
@@ -241,9 +302,14 @@ class NetCDFWriter(Writer):
                      Echo2 = ('f4', 'twodim', 'dB'), 
                      Echo3 = ('f4', 'twodim', 'dB'), 
                      Echo4 = ('f4', 'twodim', 'dB'), 
-                     Echo_AVG = ('f4', 'twodim', 'dB'))
-    
-    SECTIONS = 'fixed_leader variable_leader velocity echo'.split()
+                     Echo_AVG = ('f4', 'twodim', 'dB'),
+                     #
+                     BTVel1 = ('f4', 'onedim', 'm/s'),
+                     BTVel2 = ('f4', 'onedim', 'm/s'),
+                     BTVel3 = ('f4', 'onedim', 'm/s'),
+                     BTVel4 = ('f4', 'onedim', 'm/s'), 
+                     )
+    SECTIONS = 'fixed_leader variable_leader velocity echo bottom_track'.split()
                                     
                                     
     def __init__(self, output_file, ensemble_size_limit=None):
@@ -259,46 +325,38 @@ class NetCDFWriter(Writer):
         super().__init__()
         self.ensemble_size_limit = ensemble_size_limit
         self.output_file = output_file
+        self.coro_fun = self.coro_write_ensembles()
         
     def close(self):
         ''' Close current open file '''
         self.dataset.close()
 
-    def write_ensembles(self, ensembles):
-        '''Write ensembles to file or files
-
-        Parameters
-        ----------
-
-        ensembles : iteratable 
-            ensembles (generator/list/etc)
-
-        Returns
-        -------
-        tuple :
-            number of ensembles written and the number of files written.
-        '''
-        n = 0
+    @coroutine
+    def coro_write_ensembles(self):
+        n = 0 # counter of opened netcdf file.
         if self.ensemble_size_limit:
             self.open(n)
         else:
             self.open()
             
-        k=0
-        i=0
-        for i, ens in enumerate(ensembles):
-            if k==0:
-                dimensions, variables = self.initialise(ens)
-            self.add_ensemble(k, ens, variables)
-            k+=1
-            if self.ensemble_size_limit and k==self.ensemble_size_limit:
-                self.close()
-                n+=1
-                k=0
-                self.open(n)
+        k=0 # counter of ensembles written to this file
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                if k==0:
+                    dimensions, variables = self.initialise(ens)
+                self.add_ensemble(k, ens, variables)
+                k+=1
+                if self.ensemble_size_limit and k==self.ensemble_size_limit:
+                    self.close()
+                    n+=1
+                    k=0
+                    self.open(n)
         self.close()
-        return i, n+1
-    
+        
     # "private" methods
     def create_dimensions(self, n_bins):
         time = self.dataset.createDimension('time', None)
@@ -353,7 +411,6 @@ class NetCDFWriter(Writer):
                 except KeyError:
                     pass
                 else:
-                    print("Ok:", v)
                     if dim == 'onedim':
                         variables[v][k] = value
                     elif dim == 'twodim':
@@ -401,8 +458,7 @@ class AsciiWriter(Writer):
         super().__init__()
         self.comment = "#"
         self.adcp_offset = adcp_offset
-        self.output_file = output_file
-        
+        self.coro_fun = self.coro_write_ensembles(output_file)
   
     def write_configuration(self, config, fd=sys.stdout):
         fd.write("{}Configuration:\n".format(self.comment))
@@ -427,34 +483,39 @@ class AsciiWriter(Writer):
         for t, u, v, w, verr in zip(data1d['Time'], data2d['velocity Velocity1'], data2d['velocity Velocity2'], data2d['velocity Velocity3'], data2d['velocity Velocity4']):
             dt = datetime.datetime.utcfromtimestamp(t)
             tstr = dt.strftime("%Y-%m-%dT%H:%M:%S")
-            for i, (_u, _v, _w, _verr) in enumerate(zip(u, v, w, verr)):
+            for i, p in enumerate(zip(u, v, w, verr)):
                 r = firstbin + i*binsize
                 z= factor*r + self.adcp_offset
                 try:
-                    fd.write("{:20s}{:< 20.3f}{:< 20.3f}{:< 20.3f}{:< 20.3f}{:< 20.3f}\n".format(tstr, z, _u, _v, _w, _v))
+                    fd.write("{:20s}{:< 20.3f}{:< 20.3f}{:< 20.3f}{:< 20.3f}{:< 20.3f}\n".format(tstr, z, *p))
                 except TypeError:
                     pass
-                    
-
         
 class NDFWriter(Writer):
-    def __init__(self):
+    def __init__(self, output_file = None):
         super().__init__()
         self._global_parameters = dict()
+        self.output_file = output_file
+        self.coro_fun = self.coro_write_ensembles()
 
-    def write_ensembles(self, ensembles):
+    @coroutine
+    def coro_write_ensembles(self):
         ''' a non-lazy implementation. This reads all the data into memory because of
             how ndf files are written. NDF files cannot be written from generators.
         '''
         config = None
         data1d = defaultdict(lambda : [])
         data2d = defaultdict(lambda : [])
-        
-        for ens in ensembles:
-            if not config:
-                config = ens['fixed_leader']
-            self.read_scalar_data(data1d, ens)
-            self.read_vector_data(data2d, ens)
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                if not config:
+                    config = ens['fixed_leader']
+                self.read_scalar_data(data1d, ens)
+                self.read_vector_data(data2d, ens)
         self.write_to_file(config, data1d, data2d)
 
     def write_to_file(self,config, data1d, data2d):

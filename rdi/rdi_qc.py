@@ -2,12 +2,14 @@ import numpy as np
 
 from rdi import __VERSION__
 
+from rdi.coroutine import coroutine, Coroutine
+
 # default setting for if true, all ensembles that have all data
 # blanked out because of some quality check will silently be dropped.
 DROP_MASKED_ENSEMBLES_BY_DEFAULT = False
     
 
-class QualityControl(object):
+class QualityControl(Coroutine):
     ''' Quality Control base class
 
         Implements conditions to make arrays masked arrays,
@@ -15,6 +17,7 @@ class QualityControl(object):
         scalars that don't pass the condition are set to nan.
     '''
     def __init__(self, drop_masked_ensembles=None):
+        super().__init__()
         self.conditions = list()
         self.operations = {">":self.discard_greater,
                            ">=":self.discard_greater_equal,
@@ -28,20 +31,25 @@ class QualityControl(object):
             self.drop_masked_ensembles = DROP_MASKED_ENSEMBLES_BY_DEFAULT
         else:
             self.drop_masked_ensembles = drop_masked_ensembles
-            
-    def __call__(self, ensembles):
-        ''' returns the ensemble generator '''
-        return self.gen(ensembles)
-
-    def gen(self, ensembles):
-        ''' generator, returning checked ensembles '''
-        for i, ens in enumerate(ensembles):
-            keep_ensemble = self.check_ensemble(ens)
-            if keep_ensemble or not self.drop_masked_ensembles:
-                yield ens
+        self.coro_fun = self.coro_check_ensembles()
+        
+    @coroutine
+    def coro_check_ensembles(self):
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
             else:
-                continue # ensemble is dropped
+                keep_ensemble = self.check_ensemble(ens)
+                if keep_ensemble or not self.drop_masked_ensembles:
+                    self.send(ens)
+                else:
+                    continue # ensemble is dropped
+        self.close_coroutine()
 
+
+        
     def check_ensemble(self, ens):
         ''' check an ensemble. Should be subclassed.'''
         raise NotImplementedError
@@ -212,7 +220,7 @@ class AcousticAmplitudeLimit(QualityControl):
 
 
     
-class Counter(object):
+class Counter(Coroutine):
     ''' An ensemble counter class.
 
     This class merely counts the number of ensembles that pass through the pipeline at this stage.
@@ -226,12 +234,18 @@ class Counter(object):
     '''
     
     def __init__(self):
+        super().__init__()
         self.counts = []
+        self.coro_fun = self.coro_counter()
 
-    def __call__(self, ensembles):
-        return self.gen(ensembles)
-    
-    def gen(self, ensembles):
-        for i, ens in enumerate(ensembles):
-            yield ens
-        self.counts.append(i)
+    @coroutine
+    def coro_counter(self):
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                self.counts.append(ens['variable_leader']['Ensnum'])
+                self.send(ens)
+        self.close_coroutine()

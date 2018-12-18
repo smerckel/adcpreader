@@ -4,6 +4,8 @@ import numpy as np
 
 from rdi import __VERSION__
 
+from rdi.coroutine import Coroutine, coroutine
+
 
 class AcousticAbsorption(object):
     '''
@@ -34,7 +36,7 @@ class AcousticAbsorption(object):
     def __call__(self,f, T, S, z, pH=7):
         return self.alpha(f, T, S, z, pH)
 
-class AcousticCrossSection(object):
+class AcousticCrossSection(Coroutine):
     ''' A class which adds the acoustic cross section area to the ensemble.
         
     A new section 'sigma' is created with the variabels Sigma1..4, and Sigma_AVG.
@@ -44,12 +46,26 @@ class AcousticCrossSection(object):
 
     '''
     def __init__(self, S=None, k_t=1e-8, N_t=45, db_per_count=[0.61]*4):
+        super().__init__()
         self.S = S
         self.__data=[k_t, N_t, db_per_count]
         self.alpha = AcousticAbsorption()
+        self.coro_fun = self.coro_add_acoustic_cross_section()
         
-    def __call__(self, ensembles):
-        return self.gen(ensembles)
+    @coroutine
+    def coro_add_acoustic_cross_section(self):
+        config = None
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                if not config:
+                    config = self.get_config(ens)
+                self.add_acoustic_cross_section(ens, config)
+                self.send(ens)
+        self.close_coroutine()
 
     def get_config(self, ens):
         fld = ens['fixed_leader']
@@ -88,14 +104,6 @@ class AcousticCrossSection(object):
         return config
     
 
-    def gen(self, ensembles):
-        config = None
-        for ens in ensembles:
-            if not config:
-                config = self.get_config(ens)
-            ens_mod = self.add_acoustic_cross_section(ens, config)
-            yield ens_mod
-
     def add_acoustic_cross_section(self, ens, config):
         T = ens['variable_leader']['Temp']
         S = self.S or ens['variable_leader']['Salin']
@@ -107,9 +115,7 @@ class AcousticCrossSection(object):
             ens['sigma']['Sigma%d'%(b+1)] = sigma
             ens['sigma']['Sigma_AVG'] += sigma
         ens['sigma']['Sigma_AVG'] /= config.n_beams
-        return ens
     
-        
 
     def compute_sigma(self, echo_intensity, T, S, db_per_count, config):
         N_t = config.N_t

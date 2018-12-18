@@ -7,6 +7,8 @@ import numpy as np
 
 from rdi import __VERSION__
 
+from rdi.coroutine import Coroutine
+
 # add filename=... to log to a file instead.
 logging.basicConfig(level=logging.INFO)
 
@@ -480,7 +482,7 @@ class Ensemble(object):
         raise RuntimeError('decode_environemental_command_parameters is NOT tested yet because of lack of data')
         return data
             
-class PD0(object):
+class PD0(Coroutine):
     BUFFER_SIZE = 524288 # 512 blocks of 1024
     ''' Class to process one or multiple PD0 files.
 
@@ -491,6 +493,7 @@ class PD0(object):
     '''
 
     def __init__(self, add_unix_timestamp=True, baseyear=2000):
+        super().__init__()
         self.add_unix_timestamp = add_unix_timestamp
         self.baseyear = baseyear
 
@@ -606,7 +609,31 @@ class PD0(object):
         for fn in filenames:
             for ensemble in self.ensemble_generator_per_file(fn):
                 yield ensemble
-            
+
+    def process(self, f, close_coroutines_at_exit=True):
+        ''' Process filename or list of filenames, driving the pipeline 
+        
+        Parameters
+        ----------
+        f : filename or list 
+            filename or list of file names
+        
+        close_coroutines_at_exit : boolean
+             if True, the coroutines will be sent a close command, causeing
+             the coroutines to finish. They cannot be reused after this command.
+
+        '''
+        if isinstance(f, str):
+            filenames = [f]
+        else:
+            filenames= list(f)
+        for fn in filenames:
+            for ensemble in self.ensemble_generator_per_file(fn):
+                self.send(ensemble)
+        if close_coroutines_at_exit:
+            self.close_coroutine()
+
+                
     ### helper functions ###
     def read_data_as_needed(self, fd, data, requested_size, buffer_size):
         ''' read as much data from file descriptor as needed. 
@@ -737,22 +764,25 @@ g    Any number of operations can be added to the pipeline. The source is assume
 if __name__ == "__main__":
     import rdi_writer
     import rdi_qc
-
-    vl = rdi_qc.ValueLimit()
-    vl.set_discard_condition('variable_leader', 'Pitch','>',0)
-    #vl.set_discard_condition('variable_leader', 'Pitch','<',0)
-
+    
     filename = "../data/PF230519.PD0"
     
     pd0 = PD0()
-    tee = rdi_writer.Tee()
+
+    clipper = rdi_qc.ValueLimit()
+    clipper.set_discard_condition('velocity', 'Velocity1','||>',1)
+    clipper.set_discard_condition('velocity', 'Velocity2','||>',1)
+    clipper.set_discard_condition('velocity', 'Velocity3','||>',1)
+    clipper.set_discard_condition('velocity', 'Velocity4','||>',1)
+
+    counter = rdi_qc.Counter()
+
+    writer = rdi_writer.AsciiWriter()
+
     
-    ens = pd0.ensemble_generator(filename)
+    pd0.send_to(clipper)
+
+    clipper.send_to(counter)
+    counter.send_to(writer)
     
-    ens, enscpy = tee(ens)
-    enscpy = vl(enscpy)
-    s = list(ens)
-    t = list(enscpy)
-    print("Number of ensembles:", len(s))
-    print("Last ensemble:")
-    print(s[-1])
+    pd0.process(filename)
