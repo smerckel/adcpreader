@@ -4,6 +4,14 @@ rdi package
 Submodules
 ----------
 
+rdi.coroutine module
+--------------------
+
+.. automodule:: rdi.coroutine
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 rdi.numpy\_writer module
 ------------------------
 
@@ -28,10 +36,10 @@ rdi.rdi\_corrections module
     :undoc-members:
     :show-inheritance:
 
-rdi.rdi\_hardiron module
+rdi.rdi\_datafuse module
 ------------------------
 
-.. automodule:: rdi.rdi_hardiron
+.. automodule:: rdi.rdi_datafuse
     :members:
     :undoc-members:
     :show-inheritance:

@@ -11,7 +11,7 @@ that the pitch values that are used are biased as well as the speed of
 sound is computed wrongly because of a improper setting of the
 salinity.
 
-We will create a generator generating ping-data, perform inverse
+We will create a pipeline, generating ping-data, perform inverse
 rotation transformations, representing the velocities relative to the platform,
 applying a speed of sound correction, and perform a forward rotation
 transformation using correct attitude data. Finally the data are
@@ -28,28 +28,29 @@ filename with binary data. ::
   import numpy as np
 
   import rdi
-  filenames = ["../data/PF230519.PD0"]
+  filename = "../data/PF230519.PD0"
   
 Then, an reader object is created. ::
 
   reader = rdi.rdi_reader.PD0()
 
-For a list of filenames, the ensemble_generator method returns a
-generator object, yielding all the pings that are contained in the
-list of binary data files. ::
+We can call the process() method, with a filename or list of
+filenames as argument, to read the binary files, ensemble per ensemble ::
+  
+  reader.process(filename)
 
-  ensembles = reader.ensemble_generator(filenames)
-
-
-We could now make a loop and do some per ping processing: ::
-
-  for i,ens in enumerate(ensembles):
-      do_some_processing_on_ensemble(ens)
+The reader instance feeds each ensemble into a pipe line of processes,
+which, for now, is still empty and all information will disappear into
+a void. So, to do something useful, we will have to define a line of
+operations, with a /sink/ at the end to consume all the data. Most
+often the sink will be a process that writes the processed pings to a
+file.
 
 Setting up the pipeline, from start to finish
 ---------------------------------------------
 
-Let's fill in the do_some_processing_on_ensemble() function. The
+Let's set up a pipeline of operations that do something useful, rather
+than just burning CPU cycles. The
 objective was to correct for wrong attitude information provided to
 the ADCP. To that end, the pipeline is extended with rotation
 transformations.
@@ -60,14 +61,14 @@ ADCP. These coordinate systems are:
 
 * BEAM (untransformed, along beam velocities)
 * XYZ (x, y, z coordinates), an ADCP referenced frame.
-* FSU (forward starboard up), a platform referenced frame
+* SFU (starboard forward up), a platform referenced frame
 * ENU (east north up), an earth referenced frame
 
 The transformation classes defined,  transform between
 
 * BEAM -> XYZ
-* XYZ -> FSU
-* FSU -> ENU
+* XYZ -> SFU
+* SFU -> ENU
 
 Besides these transformations their inverse counterparts are
 defined. The definition of the angles used in the inverse
@@ -79,36 +80,36 @@ concatenating the basic transformations above.
 
 To transform the velocity data back to the instruments coordinate
 system XYZ, we (inverse) transform it first to ships coordinates
-(FSU), and then (inverse again) to the XYZ coordinates. The first
+(SFU), and then (inverse again) to the XYZ coordinates. The first
 transformation becomes ::
 
-  enu_fsu = rdi_transforms.TransformENU_FSU()
+  enu_sfu = rdi_transforms.TransformENU_SFU()
 
 This particular transformation uses the attitude angles available in
 each ping to do the rotation. The angles used (not visible to the
-user) are defined as rotation angles to transform from FSU to
+user) are defined as rotation angles to transform from SFU to
 ENU. 
 
-The second transform is the transform from FSU to XYZ cooridnate
+The second transform is the transform from SFU to XYZ coordinate
 system. This transformation comprises of a single angle triplet, namely the
 anlges at which the ADCP is mounted to the platform. For the glider
 the would mean that the only the pitch angle is non-zero. Again, the
-angles are defined for forward transforms, i.e. form XYZ to FSU. ::
+angles are defined for forward transforms, i.e. form XYZ to SFU. ::
 
-  fsu_xyz = rdi_transforms.TransformFSU_XYZ(alpha=0, beta=0.1919, gamma=0)
+  sfu_xyz = rdi_transforms.TransformSFU_XYZ(hdg=0, pitch=0.1919, roll=0)
 
 If we know that the mounting pitch angle was not 0.1919 radians, but
 0.2239, we can compute the velocity vectors relative to the platform,
 but using the correct rotation ::
   
-  xyz_fsu = rdi_transforms.TransformXYZ_FSU(alpha=0, beta=0.2239, gamma=0)
+  xyz_sfu = rdi_transforms.TransformXYZ_SFU(hdg=0, pitch=0.2239, roll=0)
 
 These successive rotations can be multiplied to get a resulting
-transformation object ``t4``. Note that the multiplication has to be
+transformation object ``transform``. Note that the multiplication has to be
 performed in reversed order. ::
   
   # Set up the transformation pipeline. Note the order!
-  transform = xyz_fsu * fsu*xyz * enu_fsu
+  transform = xyz_sfu * sfu_xyz * enu_sfu
 
 Finally we would like to write the data into some format that we can
 access easily. To that end, we create an object from the rdi_writer
@@ -119,61 +120,56 @@ module ::
 (Invocation of the object AsciiWriter without arguments writes the
 output to stdout.)
 
-The final pipeline then becomes: ::
+Now, each operation or process, receives an ensemble, does some
+operation on it, and then passes it on to the next operation. These
+operations are implemented as coroutines.
+
+The idiom used to create such a train of operations looks like ::
+
+  reader.send_to(transform)
+  transform.send_to(writer)
+
+In this example, the ``reader`` instance is the source (does not
+receive data), and the ``writer`` instance is the sink (does not pass
+on data further).
+
+To feed the data into the pipeline, the ``process()`` method of the
+reader is called::
+
+  reader.process(filename)
 
 
-  ensembles = reader.ensemble_generator(filenames)
-  ensembles = transform(ensembles)
-  writer.write_ensembles(ensembles)
-
-or more compact (and less readable): ::
+By default, if all ensembles in the given filename have been
+processed, the pipeline is closed, and no more data can be fed into
+it. If applicable, any open files handled by the sink can be
+closed. This means that, if a second file is to be processed, the pipe line has
+to be constructed again. If the pipe line is *not* to be closed, so
+that the pipeline will keep accepting data, the positional argument
+of the ``process()`` method /close_coroutine_at_exit/ should be set
+to False.
   
-  writer.write_ensembles(t4(reader.ensemble_generator(filenames)))
+The full program listing then becomes (examples/convert_ascii.py)
 
-
-The construction of the processing pipeline can be simplified a bit by
-using the Pipeline() class::
-
-  pipeline = Pipeline()
-
-  pipeline.add(transform)
-
-  writer(pipeline)
-  
-  
-The full program listing then becomes (examples/convert_ascii.py)::
+.. code-block:: python
 
   import numpy as np
+  import rdi
 
-  from rdi import rdi_reader, rdi_transforms, rdi_writer
+  filename = "../data/PF230519.PD0"
 
-  pipeline = rdi_reader.Pipeline()
-  
-  filenames = ["../data/PF230519.PD0"]
+  reader = rdi.rdi_reader.PD0()
 
-  
-  enu_fsu = rdi_transforms.TransformENU_FSU()
-  fsu_xyz = rdi_transforms.TransformFSU_XYZ(hdg=0, pitch=0.1919, roll=0)
-  xyz_fsu = rdi_transforms.TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
+  enu_sfu = rdi.rdi_transforms.TransformENU_SFU()
+  sfu_xyz = rdi.rdi_transforms.TransformSFU_XYZ(hdg=0, pitch=0.1919, roll=0)
+  xyz_sfu = rdi.rdi_transforms.TransformXYZ_SFU(hdg=0, pitch=0.2239, roll=0)
+  transform = xyz_sfu * sfu_xyz * enu_sfu
 
-  ### now add the transforms to the pipeline:
+  with open("example_data.txt", "w") as fp:
+      writer = rdi.rdi_writer.AsciiWriter(fp)
 
-  pipeline.add(enu_fsu)
-  pipeline.add(fsu_xyz)
-  pipeline.add(xyz_fsu)
+      # set up the pipeline
+      reader.send_to(transform)
+      transform.send_to(writer)
 
-  ### or combine these transormations in one. Note the order!
-  # transform = xyz_fsu * fsu_xyz * enu_fsu
-  ### and add transform to the pipeline operations:
-  # pipeline.add(transform)
-
-  
-  
-  ### write to a file
-  ### sink = rdi_writer.AsciiWriter(filename = 'test.ascii')
-  ###
-  ### or to stdout
-  ###
-  sink = rdi_writer.AsciiWriter()
-
-  sink(pipeline(filenames))
+      # and process the data.
+      reader.process(filename)

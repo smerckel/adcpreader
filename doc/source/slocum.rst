@@ -4,10 +4,10 @@ slocum package
 Submodules
 ----------
 
-slocum.dvl\_pitch\_correction module
-------------------------------------
+slocum.pitch\_correction module
+-------------------------------
 
-.. automodule:: slocum.dvl_pitch_correction
+.. automodule:: slocum.pitch_correction
     :members:
     :undoc-members:
     :show-inheritance:

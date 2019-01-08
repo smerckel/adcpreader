@@ -4,38 +4,77 @@ Correction algorithms
 Speed of sound
 --------------
 
-Currently the only correction class implemented applies to the
-correction of the speed of sound. Normally an ADCP has a preset value
+Normally an ADCP has a preset value
 for the salinity, and computes the speed of sound from the measured
 temperature and preset salinity. In cases where the salinity has been
 set wrongly, or where the salinity changes, it could be necessary to
 include a correction of the measurements due to the effects of the
 speed of sound in the pipe line.
 
-The class that gives access to the correction algorithms is
-SpeedOfSoundCorrection(). The constructor of this class takes an
-optional argument RTC_year_base. The year information contained in the
+A number of different options are available 
+
+# HorizontalCurrentCorrectionFromSalinityPressure
+# CurrentCorrectionFromSalinityPressure
+# CurrentCorrectionFromSalinity
+
+All these classes derive from SpeedOfSoundCorrection, and take an
+option positional argument RTC_year_base (defaults to 2000).  The year information contained in the
 binary data are stored as a two-digit decimal number. By default the
 year base is set to 2000, interpreting the year 17 as 2017. Should
 data be processed that were collected in the previous century, then
 the year base should be set accordingly.
 
-The class SpeedOfSoundCorrection implements a method
-horizontal_current_from_salinity_pressure(), which returns a generator
-that modifies the horizontal components of the measured currents of
-each ping. This method requires that the coordinate frame used to
-output the data is set to 'Earth' so that the data actually contain
-horizontal data. If the coordinate frame is set to something else than
-'Earth' a ValueError is raised, aborting the pipeline. Calling this
-method takes as argument an ensemble generator, a time vector (s), a
-absolute salinity vector and a pressure vector (dbar). The time,
-salinity and pressure vectors should be of equal length.
+The class ``CurrentCorrectionFromSalinity`` is simplest, and scales
+all velocities with a correction factor for the speed of sound, based
+on a constant value for salinity. If both salinity and pressure are
+given as time series, the classes ``HorizontalCurrentCorrectionFromSalinityPressure``
+and ``CurrentCorrectionFromSalinityPressure`` can be used which
+correct the horizontal are all three velocity components,
+respectively. The former correction method requires the coordinate
+frame to be ``Earth``.
 
-Another method that is implemented in this class is the 
-current_correction_at_transducer_from_salinity_pressure() method,
-which corrects the measured velocities in all bins by a factor
-computing from the observed salinity in relation to the preset value
-of salinity. The call signature of this method is identical to the
-horiztonal_current_from_salinity_pressure() method.
+
+Echo intensities can be scaled, per beam, using the
+`ScaleEchoIntensities` class. An instant of this class can be inserted
+in the pipeline to scale the echo intensities of each beam according
+to factors given to the constructor.
+
+
+A number of ensembles can be averaged into a single ensemble, using
+the class `Aggregator`. The parameters averaged are:
+
+# Roll
+# Pitch
+# Heading
+# Soundspeed
+# Salin
+# Temp
+# Press
+# Time
+# Timestamp
+# Velocity1
+# Velocity2
+# Velocity3
+# Velocity4
+# Echo1
+# Echo2
+# Echo3
+# Echo4
+# BTVel1
+# BTVel2
+# BTVel3
+# BTVel4
+
+
+The classes  `AttitudeCorrectionLinear` and
+`AttitudeCorrectionTiltCorrection` allow pitch, and heading, pitch and
+roll, to be corrected respectively. This may be necessary for data
+collected with an attitude sensor that reports biased tilt angles
+(pitch and roll) as happened to glider Comet due to a leaking tilt
+sensor. The simple correction method requires the linear coefficients
+of a and b of a correction relation for the pitch. The more complex
+AttitudeCorrectTiltCorrection class corrects for the errors in pitch
+and roll, and corrects for the errors introduced into the heading
+measurement.
 
 

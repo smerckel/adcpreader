@@ -105,13 +105,10 @@ An example of the use a ValueLimit filter and a SNRLimit filter is shown below :
   discard_noisy_returns = SNRLimit(10, 26.1)
   
   :
-  # start of pipeline
-  ensembles = pd0.ensemble_generator(filenames)
-  :
-  :
-  ensembles = discard_velocities(ensembles)
-  ensembles = discard_noisy_returns(ensembles)
-  :
+
+  pd0.send_to(discard_velocities)
+  discard_velocities.send_to(discard_noisy_returns)
+  discard_noisy_returns.send_to(...)
   :
   # further processing
   :

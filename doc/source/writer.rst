@@ -15,23 +15,21 @@ that writes NetCDF files, for example, a class is to be created that
 is subclassed from the Writer() class and implements the output format
 specific calls.
 
-The API of the Writer() class and its subclasses is
+The typical use of the Writer() class and its subclasses is
 
 ::
    
-   W = Writer()
+   writer = Writer()
 
-   W.write_ensembles(ensembles)
+   writer.set_custom_parameter(section, *name, dtype='scalar'|'vector')
 
-   W.set_custom_parameter(section, *name, dtype='scalar'|'vector')
+   reader.send_to(writer)
 
-   
-
-The method W.write_ensembles(ensembles) is effectively the sink method
-and should be last statement in the pipeline. Instead of calling
-W.write_ensembles(ensembles), the instance W can be called with the
-ensembles as argument.
-
+The first line creates an instance of the ``Writer`` class, and the
+second line allows variables to be written to file, that would be left
+out by default. Not all implementations of a Writer subclass honour
+this, though. In the third line, the writer is hooked up in the
+pipeline. In this case, directly to the reader.
 The Writer() class defines a further three methods:
 
 ::
@@ -77,24 +75,27 @@ after processing each ensemble. (This may change in the future, to
 write to file only when a specified number of ensembles have been
 processed.)
 
-btv1  BTVel1
-btv2  BTVel2
-btv3  BTVel3
-btv4' BTVel4
-btpg1 PG1
-btpg2 PG2
-btpg3 PG3
-btpg4 PG4
+
+AsciiWriter
+-----------
+
+The ``AsciiWriter`` class derives from the ``Writer`` class, and it
+implements the write_configuration(), write_header() and write_array()
+methods. The constructor of the ``AsciiWriter`` class can receive a
+file pointer, and using this file pointer to write the data it
+receives. If no file pointer is given, then all the data is directed
+to stdout.
+
+NetCDFWriter
+------------
+
+The ``NetCDFWriter`` class also derives from the ``Writer`` class, and
+can be used for writing the data in NetCDF format. Currently the
+implementation is basic, and a preset list of variables is written
+into the files. The constructor requires the basename of the output
+file(s). Optionally a ensemble_size_limit can be set, which limits the
+number of ensembles. If more than one file is required, the files are
+numbered sequentially.
 
 
-   
-
-
-
-
-
-
-The remaining three methods are not implemented
-by the Writer() class and should be implemented by the subclasses,  as
-these particulare 
 

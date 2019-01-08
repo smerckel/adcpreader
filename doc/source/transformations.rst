@@ -29,8 +29,8 @@ systems:
 +--------+-----------------------------------------------------------------+
 |XYZ     | velocities expressed in a coordinate system fixed to the ADCP   |
 +--------+-----------------------------------------------------------------+
-|FSU     | velocities expressed in 'ship coordinates', that is relative to |
-|        | the ship or platform (glider) that carries the ADCP. FSU is     |
+|SFU     | velocities expressed in 'ship coordinates', that is relative to |
+|        | the ship or platform (glider) that carries the ADCP. SFU is     |
 |        | short for Forward, Starboard and Up.                            |
 +--------+-----------------------------------------------------------------+
 |ENU     | velocities expressed in a earth referenced frame. ENU is short  |
@@ -39,7 +39,7 @@ systems:
 
 Both the BEAM and XYZ coordinate systems are bound to the ADCP only
 and require no external information to apply the transformation. To
-convert to the FSU coordinate system the mounting angles of the ADCP
+convert to the SFU coordinate system the mounting angles of the ADCP
 around the forward, starboard and up axis of the platform are
 required. To transform to the ENU coordinate system, in addition the attitude of
 the platform (pitch, heading and roll) is required.
@@ -47,7 +47,7 @@ the platform (pitch, heading and roll) is required.
 The rdi_transforms module defines a number of classes to transform
 between two coordinate systems. Each transformation is a single step
 transformation. That is, only (bidrectional) transformations between BEAM and XYZ,
-XYZ and FSU, and FSU and ENU are implemented. An instance that
+XYZ and SFU, and SFU and ENU are implemented. An instance that
 transforms between other coordinate system combinations than those
 listed above, can be simply obtained by left multiplying instances of
 those single step transformations.
@@ -62,11 +62,11 @@ to all transformation classes. The available transformation classes
 
 ::
 
-   TransformXYZ_FSU()
+   TransformXYZ_SFU()
 
 ::
    
-   TransformFSU_ENU()
+   TransformSFU_ENU()
 
 
 These transformation classes define transformations in the direction
@@ -86,11 +86,11 @@ above with ``inverse = True`` set):
 
 ::
 
-   TransformFSU_XYZ()
+   TransformSFU_XYZ()
 
 ::
    
-   TransformENU_FSU()
+   TransformENU_SFU()
 
 
 .. note::
@@ -113,61 +113,17 @@ transformations using the correct mounting angles.
    mounting_pitch_angle = 12*3.1415/180.
    configured_mounting_pitch_angle = 11*3.1415/180.
    # First undo last transformation step
-   t1 = TransformENU_FSU()
+   t1 = TransformENU_SFU()
    # then undo the second, using the mounting angle specified:
-   t2 = TransformFSU_XYZ(hdg=0, pitch=configured_mounting_pitch_angle,
+   t2 = TransformSFU_XYZ(hdg=0, pitch=configured_mounting_pitch_angle,
 		         roll=0)
-   # Now redo the transformation from XYZ to FSU using the correct
+   # Now redo the transformation from XYZ to SFU using the correct
    # mounting angle
-   t3 = TransformXYZ_FSU(hdg=0, pitch=mouting_pitch_angle, roll=0)
+   t3 = TransformXYZ_SFU(hdg=0, pitch=mouting_pitch_angle, roll=0)
    #and redo the transformation to geodetic coordinates
-   t4 = TransformFSU_ENU()
+   t4 = TransformSFU_ENU()
    
    # the resulting transformation is given by left-multiplying the
    #single transformation steps:
    t_result = t4 * t3 * t2 * t1
-   
-Hooks
------
-
-A hook is a mechanism to provide a way to manipulate values of
-parameters used during the transformation. A typical example (and also
-the only one currently implemented) is the correction of the measured
-pitch angle of the platform. In such a case the transformation from
-FSU to ENU needs to be undone (using the reported attitude angles). A
-later transformation step involves the forward transformation from FSU
-to ENU, where the reported attitude angles are modified according to
-some known function. Such a correction function can be 'hooked on'
-the latter transformation instance.
-
-In an example...
-
-.. code-block:: python
-		
-   # First undo last transformation step using the attitude angles
-   # as used by the ADCP.
-   t1 = TransformENU_FSU()
-
-   # Suppose that the measured pitch has some error because of a poor
-   # calibration and can be corrected using a linear function:
-   # pitch_corrected = a * pitch + b
-   # where a and b are known coeffs.
-
-   a = ...
-   b = ...
-   
-   def pitch_correction(hdg, pitch, roll):
-	pitch_c = a * pitch + b
-	return hdg, pitch_c, roll
-	
-   # Create an instance of the forward transformation
-   t2 = TransformFSU_ENU()
-
-   # and add the hook `attitude_correction`:
-
-   t2.hooks['attutitude_correction'] = pitch_correction
-
-   # the resulting transformation then becomes:
-
-   t_result = t2 * t1
    

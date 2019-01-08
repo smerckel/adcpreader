@@ -17,29 +17,25 @@ PD0 file and returns its binary contents. Note that at this instance
 the whole file is contained in memory. Although binary files can be
 large, it is not expected that a file would not fit in memory.
 
-To parse the binary data, the PD0() class defines a
-ensemble_data_generator() method, which takes the binary data returned
-by the read() method as input parameter, and returns a generator,
-yielding binary data chunks representing single pings. Each such a
-binary data chunk can be converted into an ensemble (or ping) by
-creating an instance of the Ensemble object with the chunk of binary
-data as argument. The decode() method of the Ensemble object returns
-a dictionary with all the fields contained in the ensemble data.
+To parse the binary data, the PD0() class defines a ``process()``
+method, which takes one filename, or a list of filenames, and starts
+reading the binary data. The data are then sent into the pipeline,
+that is to be defined before the ``process()`` method is called. The
+``process()`` method is implemented as a lazy data generator, that is,
+only so much data is read that is required to send all the information
+of a ensemble down the pipeline. The benefit is of this approach is
+that, the binary files can be huge, without the need to worry about
+memory issues. 
 
-The PD0() class defines a high level method ensemble_generator that
-combines the steps described above in a single method. As input, the
-method takes a single filename or list of files, and returns a
-generator yielding decoded ensembles or pings. If a list of many files
-is supplied as argument, then, at any time only one file is read and
-kept in memory, which allows for bulk processing of data without the
-risk of running out of memory.
 
 A typical use of the PD0() reader class, thus is ::
+
   pd0 = PDO()
 
-  ensembles = pd0.ensemble_generator(list_of_pd0_filenames)
-
-which is the recomened way to start a pipeline.
+  :
+  # Define a pipe line
+  :
+  pd0.process(list_of_pd0_filenames)
 
 
 Decoding of PD0 binaries

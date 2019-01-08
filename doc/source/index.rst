@@ -36,6 +36,7 @@ windows and OSX platforms without modification.
    transformations
    backscatter
    pipelines
+   context_managers
    modules
 
 Indices and tables
