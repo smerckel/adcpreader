@@ -1,34 +1,22 @@
 import numpy as np
 
-from rdi import rdi_reader, rdi_transforms, rdi_writer
+import rdi
 
-pipeline = rdi_reader.Pipeline()
+filename = "../data/PF230519.PD0"
 
-filenames = ["../data/PF230519.PD0"]
+reader = rdi.rdi_reader.PD0()
 
+enu_sfu = rdi.rdi_transforms.TransformENU_SFU()
+sfu_xyz = rdi.rdi_transforms.TransformSFU_XYZ(hdg=0, pitch=0.1919, roll=0)
+xyz_sfu = rdi.rdi_transforms.TransformXYZ_SFU(hdg=0, pitch=0.2239, roll=0)
+transform = xyz_sfu * sfu_xyz * enu_sfu
 
-enu_fsu = rdi_transforms.TransformENU_FSU()
-fsu_xyz = rdi_transforms.TransformFSU_XYZ(hdg=0, pitch=0.1919, roll=0)
-xyz_fsu = rdi_transforms.TransformXYZ_FSU(hdg=0, pitch=0.2239, roll=0.05)
+with open("example_data.txt", "w") as fp:
+    writer = rdi.rdi_writer.AsciiWriter(fp)
 
-### now add the transforms to the pipeline:
+    # set up the pipeline
+    reader.send_to(transform)
+    transform.send_to(writer)
 
-pipeline.add(enu_fsu)
-pipeline.add(fsu_xyz)
-pipeline.add(xyz_fsu)
-
-### or combine these transormations in one. Note the order!
-# transform = xyz_fsu * fsu_xyz * enu_fsu
-### and add transform to the pipeline operations:
-# pipeline.add(transform)
-
-
-
-### write to a file
-### sink = rdi_writer.AsciiWriter(filename = 'test.ascii')
-###
-### or to stdout
-###
-sink = rdi_writer.AsciiWriter()
-
-sink(pipeline(filenames))
+    # and process the data.
+    reader.process(filename)

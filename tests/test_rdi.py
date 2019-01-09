@@ -1,3 +1,5 @@
+import numpy as np
+
 import rdi.rdi_reader, rdi.rdi_writer, rdi.rdi_qc, rdi.rdi_transforms, rdi.rdi_corrections, rdi.rdi_backscatter
 
 
@@ -28,8 +30,9 @@ class TestWriter(unittest.TestCase):
     def test_netcdf(self):
         pd0 = rdi.rdi_reader.PD0()
         writer = rdi.rdi_writer.NetCDFWriter('PF230519.nc')
-        pd0.send_to(writer)
-        pd0.process(self.filename)
+        with writer:
+            pd0.send_to(writer)
+            pd0.process(self.filename)
 
     def test_qc(self):
         pd0 = rdi.rdi_reader.PD0()
@@ -61,13 +64,12 @@ class TestWriter(unittest.TestCase):
         pd0 = rdi.rdi_reader.PD0()
 
         t = rdi.rdi_transforms.TransformENU_SFU()
-        
-        writer = rdi.rdi_writer.AsciiWriter()
-            
-        pd0.send_to(t)
-        t.send_to(writer)
-            
-        pd0.process(self.filename)
+
+        with open('tmp5','w') as fp:
+            writer = rdi.rdi_writer.AsciiWriter(fp)
+            pd0.send_to(t)
+            t.send_to(writer)
+            pd0.process(self.filename)
 
     def test_salinity_correction(self):
         pd0 = rdi.rdi_reader.PD0()
@@ -127,7 +129,26 @@ class TestWriter(unittest.TestCase):
 
         pd0.process(self.filename)
 
-        
+    def test_pipeline(self):
+        t1 = rdi.rdi_transforms.TransformENU_SFU()
+        t2 = rdi.rdi_transforms.TransformSFU_XYZ(0, 0.1919, 0)
+        t3 = rdi.rdi_transforms.TransformXYZ_BEAM()
+        t = t3*t2*t1
+
+        T1 = rdi.rdi_transforms.TransformSFU_ENU()
+        T2 = rdi.rdi_transforms.TransformXYZ_SFU(0, 0.1919, 0)
+        T3 = rdi.rdi_transforms.TransformBEAM_XYZ()
+        T = T1*T2*T3
+
+        sosc = rdi.rdi_corrections.CurrentCorrectionFromSalinity(SA=7)
+        writer = rdi.rdi_writer.DataStructure()
+
+        pd0 = rdi.rdi_reader.PD0()
+        pipeline = rdi.rdi_reader.make_pipeline(t, sosc, T,writer)
+        pd0.send_to(pipeline)
+        pd0.process(self.filename)
+        print(np.mean(pipeline.data['velocity_east']))
+        #should be -6.199 or something
 if __name__=="__main__":
     unittest.main()        
 
