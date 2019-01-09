@@ -6,7 +6,7 @@ import os
 import sys
 
 import numpy as np
-from  netCDF4 import Dataset
+from netCDF4 import Dataset
 
 import ndf
 from rdi import __VERSION__
@@ -39,7 +39,7 @@ DEFAULT_PARAMETERS = dict(velocity = PARAMETERS['velocity'],
                           correlation = PARAMETERS['correlation'],
                           percent_good = PARAMETERS['percent_good'],
                           variable_leader = 'Timestamp Ensnum Soundspeed XdcrDepth Heading Pitch Roll Salin Temp'.split(),
-                          bottom_track = 'BTVel1 BTVel2 BTVel3 BTVel4 PG1 PG2 PG3 PG4'.split(),  
+                          bottom_track = 'BTVel1 BTVel2 BTVel3 BTVel4 PG1 PG2 PG3 PG4 Range1 Range2 Range3 Range4'.split(),  
                           fixed_leader = 'Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm WaterMode FirstBin SystemSerialNumber OriginalCoordXfrm'.split(),
                           )
 
@@ -52,6 +52,7 @@ class Writer(Coroutine):
     
     def __init__(self):
         super().__init__()
+        self.is_context_manager = False
         self.__set_parameter_list()
         
     @coroutine
@@ -65,8 +66,22 @@ class Writer(Coroutine):
                 config = self.__write_ensemble(ensemble, fd, config, scalar_data, vector_data)
             except GeneratorExit:
                 break
+
+    def __enter__(self):
+        self.is_context_manager = True
+        try:
+            self.enter()
+        except AttributeError:
+            pass    
         
-    def set_custom_parameter(self, section, *name, dtype='scalar'):
+    def __exit__(self, type, value, tb):
+        self.is_context_manager = True
+        try:
+            self.exit(type, value, tb)
+        except AttributeError:
+            pass    
+        
+    def set_custom_parameter(self, section, *name, dtype=None):
         ''' Mark a non-standard parameter as one that should be written to file.
 
         Parameters
@@ -77,6 +92,8 @@ class Writer(Coroutine):
         dtype   : string
                   specifies the data type (scalar or vector)
         '''
+        if dtype is None:
+            raise ValueError('dtype is not set explicitly.')
         for _name in name:
             self.custom_parameters[dtype].append((section, _name))
 
@@ -312,7 +329,7 @@ class NetCDFWriter(Writer):
     SECTIONS = 'fixed_leader variable_leader velocity echo bottom_track'.split()
                                     
                                     
-    def __init__(self, output_file, ensemble_size_limit=None):
+    def __init__(self, output_file=None, ensemble_size_limit=None):
         ''' Constructor
 
         Parameters:
@@ -324,6 +341,8 @@ class NetCDFWriter(Writer):
         
         super().__init__()
         self.ensemble_size_limit = ensemble_size_limit
+        self.file_counter = 0
+        self.ensemble_counter = 0
         self.output_file = output_file
         self.coro_fun = self.coro_write_ensembles()
         
@@ -331,31 +350,31 @@ class NetCDFWriter(Writer):
         ''' Close current open file '''
         self.dataset.close()
 
+    def enter(self):
+        # open a file when we enter via the context manager
+        self.open()
+        
+    def exit(self, type, value, tb):
+        if type is None:
+            # no error on leaving the context manager
+            self.close()
+            
     @coroutine
     def coro_write_ensembles(self):
-        n = 0 # counter of opened netcdf file.
-        if self.ensemble_size_limit:
-            self.open(n)
-        else:
-            self.open()
-            
-        k=0 # counter of ensembles written to this file
         while True:
             try:
                 ens = (yield)
             except GeneratorExit:
                 break
             else:
-                if k==0:
+                if self.ensemble_counter == 0:
                     dimensions, variables = self.initialise(ens)
-                self.add_ensemble(k, ens, variables)
-                k+=1
-                if self.ensemble_size_limit and k==self.ensemble_size_limit:
-                    self.close()
-                    n+=1
-                    k=0
-                    self.open(n)
-        self.close()
+                self.add_ensemble(ens, variables)
+                if self.ensemble_size_limit and self.ensemble_counter==self.ensemble_size_limit:
+                    self.open()
+        if not self.is_context_manager:
+            # if we leave the coroutine, only close the file if we are not in a context manager.
+            self.close()
         
     # "private" methods
     def create_dimensions(self, n_bins):
@@ -401,7 +420,8 @@ class NetCDFWriter(Writer):
                     variables[v].units = units
         return variables
 
-    def add_ensemble(self, k, ens, variables):
+    def add_ensemble(self, ens, variables):
+        k = self.ensemble_counter
         for s, grp in ens.items():
             if s not in self.SECTIONS:
                 continue
@@ -419,24 +439,27 @@ class NetCDFWriter(Writer):
             variables['time'][k] = ens['variable_leader']['Timestamp']
         except KeyError:
             variables['time'][k] = get_ensemble_time(ens)
-
+        self.ensemble_counter+=1
+        
     def initialise(self, ens):
         n_bins = ens['fixed_leader']['N_Cells']
         dimensions = self.create_dimensions(n_bins)
         variables = self.create_variables(ens)
         return dimensions, variables
 
-    def open(self, n=None):
-        if n==None:
-            output_file=self.output_file
-        else:
+    def open(self):
+        if self.ensemble_size_limit:
             base, ext = os.path.splitext(self.output_file)
-            output_file = "{:s}{:04d}{:s}".format(base, n, ext)
+            output_file = "{:s}{:04d}{:s}".format(base, self.file_counter, ext)
+            self.file_counter+=1
+        else:
+            output_file=self.output_file
         try:
             self.close()
         except:
             pass
         self.dataset = Dataset(output_file, 'w', format = "NETCDF4")
+        self.ensemble_counter = 0
         
 
 class AsciiWriter(Writer):
@@ -497,30 +520,43 @@ class NDFWriter(Writer):
         self._global_parameters = dict()
         self.output_file = output_file
         self.coro_fun = self.coro_write_ensembles()
-
+        
     @coroutine
     def coro_write_ensembles(self):
         ''' a non-lazy implementation. This reads all the data into memory because of
             how ndf files are written. NDF files cannot be written from generators.
         '''
-        config = None
         data1d = defaultdict(lambda : [])
         data2d = defaultdict(lambda : [])
+        self.__cache = dict(config=False, data1d=data1d, data2d=data2d)
         while True:
             try:
                 ens = (yield)
             except GeneratorExit:
                 break
             else:
-                if not config:
-                    config = ens['fixed_leader']
+                if not self.__cache['config']:
+                    self.__cache['config']= ens['fixed_leader']
                 self.read_scalar_data(data1d, ens)
                 self.read_vector_data(data2d, ens)
-        self.write_to_file(config, data1d, data2d)
+        if not self.is_context_manager:
+            self.write_to_file()
 
-    def write_to_file(self,config, data1d, data2d):
-        data = self.create_ndf(config, data1d, data2d)
-        data.save(self.output_file)
+    def exit(self, type, value, tb):
+        self.is_context_manager=False
+        if type is None:
+            self.write_to_file()
+            self.__cache['config']=False
+            self.__cache['data1d'].clear()
+            self.__cache['data2d'].clear()
+            
+    def write_to_file(self):
+        config = self.__cache['config']
+        if config:
+            data1d = self.__cache['data1d']
+            data2d = self.__cache['data2d']
+            data = self.create_ndf(config, data1d, data2d)
+            data.save(self.output_file)
 
 
     def set_filename_from_pd0(self, filename_pd0,annotation=None):
@@ -583,6 +619,7 @@ class DataStructure(Writer):
     def __init__(self):
         super().__init__()
         self.data = defaultdict(lambda : [])
+        self.coro_fun = self.coro_write_ensembles(fd=None)
         
     def __getattr__(self, item):
         if item in self.data.keys():
@@ -603,7 +640,7 @@ class DataStructure(Writer):
         pass
 
     def write_array(self, config, scalar_data, vector_data, fd):
-        transform = config['CoordXfrm']        
+        transform = config['CoordXfrm']
         for k, v in chain(scalar_data.items(), vector_data.items()):
             try:
                 s, m = k.split()

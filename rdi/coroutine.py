@@ -1,5 +1,8 @@
 # A decorator function that takes care of starting a coroutine
 # automatically on call.
+
+from copy import deepcopy
+
 def coroutine(func):
     def start(*args,**kwargs):
         cr = func(*args,**kwargs)
@@ -13,16 +16,17 @@ class Coroutine(object):
     def __init__(self):
         self._targets=[]
         
-    def send_to(self, target):
-        self._targets.append(target)
+    def send_to(self, *targets):
+        for target in targets:
+            self._targets.append(target.coro_fun)
 
     def send(self, x):
-        for i, t in enumerate(self._targets):
+        for i, coro in enumerate(self._targets):
             if i:
-                t.coro_fun.send(x.copy()) # other ensembles, by value (as a copy)
+                coro.send(deepcopy(x)) # other ensembles, by value (as a copy)
             else:
-                t.coro_fun.send(x) # first ensemble, by reference
+                coro.send(x) # first ensemble, by reference
 
     def close_coroutine(self):
-        for t in self._targets:
-            t.coro_fun.close()
+        for coro in self._targets:
+            coro.close()

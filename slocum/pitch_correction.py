@@ -31,8 +31,8 @@ class DVL_GliderPitchBase(object):
     MOUNT_PITCH = 11*np.pi/180
 
     def __init__(self, config_filename):
+        self.config_filename = config_filename
         self.read_config(config_filename)
-        self.pipeline = rdi_reader.Pipeline()
 
     def read_config_optional(self, conf, parameter, default, dtype):
         try:
@@ -61,14 +61,14 @@ class DVL_GliderPitchBase(object):
                            att_time_offset = float(conf['att_time_offset']),
                            n_files = int(conf['n_files']),
                            start_file = int(conf['start_file']),
-                           glider = conf['glider'],
-                           )
+                           glider = conf['glider'])
         self.read_config_optional(conf, 'water_density', 1025, float)
         self.read_config_optional(conf, 'water_salinity', 35, float)
         self.read_config_optional(conf, 'pd0_extension', 'pd0', str)
-        self.read_config_optional(conf, 'pitch_offset', 0, float)
         self.read_config_optional(conf, 'fit', 'linear', str)
         self.read_config_optional(conf, 'coord', 'BEAM', str)
+        self.read_config_optional(conf, 'pitch_correction_factor', 1, float)
+        self.read_config_optional(conf, 'pitch_correction_offset', 0, float)
             
     def write_default_config(self, config_filename):
         ''' write a default config file
@@ -81,8 +81,7 @@ class DVL_GliderPitchBase(object):
         config_filename : string
             name of configuration file
         '''
-        conf = configobj.ConfigObj()
-        conf.filename=config_filename
+        conf = dict()
         conf['glider'] = 'unknown'
         conf['datadir'] = os.getcwd()
         conf['outputfilename']='noname.ndf'
@@ -95,19 +94,40 @@ class DVL_GliderPitchBase(object):
         conf['date'] = 'today'
         conf['pd0_extension'] = 'pd0'
         conf['coord'] = 'BEAM'
-        conf.write()
-            
+        conf['pitch_correction_factor']=1.0
+        conf['pitch_correction_offset']=0.0
+        self.write_config(config_filename, config)
+
+    def write_config(self, config_filename, config):
+        ''' write a default config file
+
+        Parameters
+        ----------
+        config_filename : string
+            name of configuration file
+        config : dictionary
+            configuration parameters
+        '''
+        cnf = configobj.ConfigObj()
+        cnf.filename=config_filename
+        for k, v in config.items():
+            cnf[k]=v
+        cnf.write()
+        
+        
+
 
 class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
     def __init__(self, config_filename):
         super().__init__(config_filename)
         
-    def setup_pipeline(self):
-        ''' Set up a pipeline
+    def make_pipeline(self):
+        '''Makes a pipeline
 
         This method sets up a pipeline which filters bad bottom track values, and performs
-        a rotation to the FSU coordinate frame after applying some offsets in roll
+        a rotation to the SFU coordinate frame after applying some offsets in roll
         '''
+
         roll_offset = -self.config['roll_mean'] + self.config['dvl_roll_offset']
         
         bottomtrack_filter = rdi_qc.ValueLimit(drop_masked_ensembles=False)
@@ -116,21 +136,20 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         bottomtrack_filter.set_discard_condition('bottom_track', 'BTVel2','||>', 0.75)
         bottomtrack_filter.set_discard_condition('bottom_track', 'BTVel3','||>', 0.75)
         bottomtrack_filter.set_discard_condition('bottom_track', 'Range3','>', 60)
-
         if self.config['coord'] == 'ENU':
             # note: the order of multiplication is reversed wrt the sequence of applying...
-            transform = rdi_transforms.TransformXYZ_FSU(0, self.MOUNT_PITCH, roll_offset)
-            transform *= rdi_transforms.TransformFSU_XYZ(0, self.MOUNT_PITCH, 0)
-            transform *= rdi_transforms.TransformENU_FSU()
+            transform = rdi_transforms.TransformXYZ_SFU(0, self.MOUNT_PITCH, roll_offset)            
+            transform @= rdi_transforms.TransformSFU_XYZ(0, self.MOUNT_PITCH, 0)
+            transform @= rdi_transforms.TransformENU_SFU()
         elif self.config['coord'] == 'BEAM':
             # note: the order of multiplication is reversed wrt the sequence of applying...
-            transform = rdi_transforms.TransformXYZ_FSU(0, self.MOUNT_PITCH, roll_offset)
-            transform *= rdi_transforms.TransformBEAM_XYZ()
+            transform = rdi_transforms.TransformXYZ_SFU(0, self.MOUNT_PITCH, roll_offset)
+            transform @= rdi_transforms.TransformBEAM_XYZ()
         else:
             raise ValueError('Unhandled case.')
-        self.pipeline.add(transform)
-        self.pipeline.add(bottomtrack_filter)
-
+        pipeline = rdi_reader.make_pipeline(transform, bottomtrack_filter)
+        return pipeline
+    
         
     def __cost_fun(self, x, pitch, by, bz, wg):
         a, b = x
@@ -156,7 +175,9 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         -------
         depth-rate, pitch : (array, array)
         '''
-        t = data.Time
+        t_offset = self.config['att_time_offset']
+        t = data.Time + t_offset
+
         dbd = dbdreader.MultiDBD(filenames = gld_fns, include_paired = True)
         #tg, m_depth_rate = dbd.get("m_depth_rate")
         tmp = dbd.get_sync("sci_ctd41cp_timestamp", ["sci_water_pressure", "m_pitch"])
@@ -228,21 +249,28 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         dvl_fns, gld_fns = get_filenames(self.config['datadir'], self.config['glider'],
                                          n_files = self.config['n_files'], start = self.config['start_file'],
                                          pd0_extension=self.config['pd0_extension'])
+        pipeline = self.make_pipeline()
+        reader = rdi_reader.PD0()
+        data_structure = rdi_writer.DataStructure()
+        data_structure.add_parameter_list("bottom_track", "Range1", "Range2", "Range3", "Range4")
 
-        self.setup_pipeline()
-        sink = rdi_writer.DataStructure()
-        sink.add_parameter_list("bottom_track", "Range1", "Range2", "Range3", "Range4")
-        sink(self.pipeline(dvl_fns))
+        reader.send_to(pipeline)
+        pipeline.send_to(data_structure)
 
+        print("Going to process the DVL files (%d in total)"%(len(dvl_fns)))
+
+        reader.process(dvl_fns)
         # correct DVL time for offset
-        sink.Time+= self.config['att_time_offset']
-        depth_rate, pitch = self.get_depth_rate(sink, gld_fns)
+        depth_rate, pitch = self.get_depth_rate(data_structure, gld_fns)
+        self.tmp = dict(depth_rate=depth_rate, pitch=pitch, data = data_structure)
+        a,b = self.fit_to_depth_rate(data_structure, depth_rate)
+        self.config['pitch_correction_factor'] = a
+        self.config['pitch_correction_offset'] = b
+        self.write_config(self.config_filename, self.config)
         
-        a,b = self.fit_to_depth_rate(sink, depth_rate)
-
         self.report(a,b)
-        f, ax = self.make_graph(sink, depth_rate, pitch, a, b)
-        self.data = sink
+        f, ax = self.make_graph(data_structure, depth_rate, pitch, a, b)
+        self.data = data_structure
         self.f = f
         self.ax = ax
         return a,b
@@ -339,15 +367,15 @@ class DVL_GliderPitch(DVL_GliderPitchBase):
         # note: the order of multiplication is reversed wrt the sequence of applying...
         # brings to Beam coordinates
         transform0 = rdi_transforms.TransformXYZ_BEAM()
-        transform0 *= rdi_transforms.TransformFSU_XYZ(0, self.MOUNT_PITCH, 0)
-        transform0 *= rdi_transforms.TransformENU_FSU()
+        transform0 *= rdi_transforms.TransformSFU_XYZ(0, self.MOUNT_PITCH, 0)
+        transform0 *= rdi_transforms.TransformENU_SFU()
 
-        # brings to FSU coordinates
-        transform1 = rdi_transforms.TransformXYZ_FSU(0, self.MOUNT_PITCH, roll_offset)
+        # brings to SFU coordinates
+        transform1 = rdi_transforms.TransformXYZ_SFU(0, self.MOUNT_PITCH, roll_offset)
         transform1 *= rdi_transforms.TransformBEAM_XYZ()
 
         #brings to ENU coordinates
-        transform2 = rdi_transforms.TransformFSU_ENU()
+        transform2 = rdi_transforms.TransformSFU_ENU()
 
         # Setup the attitude correction
         att_cor = rdi_corrections.AttitudeCorrectionTiltCorrection(tilt_correction_factor=self.a,

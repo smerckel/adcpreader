@@ -139,7 +139,7 @@ class CurrentCorrectionFromSalinityPressure(SpeedOfSoundCorrection):
         self.close_coroutine()
         
 
-class CurrentCorrectionFromSalinity(SpeedOfSoundCorrection):
+class CurrentCorrectionFromSalinity (SpeedOfSoundCorrection):
 
     def __init__(self, SA, RTC_year_base=2000):
         '''
@@ -227,7 +227,7 @@ class Aggregator(Coroutine):
     :
 
     '''
-    AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Timestamp Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4".split()
+    AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Timestamp Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4 BTVel1 BTVel2 BTVel3 BTVel4".split()
     
     def __init__(self, aggregate_size):
         ''' Constructor
@@ -363,22 +363,22 @@ class AttitudeCorrectionTiltCorrection(AttitudeCorrection):
         SPc = np.sin(pitchc)   
         SRc = np.sin(rollc)    
 
-        Rz = np.matrix([[CH,  SH, 0],
+        Rz = np.array([[CH,  SH, 0],
                         [-SH,  CH, 0],
                         [0 ,   0, 1]])
-        Ry = np.matrix([[CP,  0,  -SP],
+        Ry = np.array([[CP,  0,  -SP],
                         [0 ,  1,  0 ],
                         [SP, 0,  CP]])
-        Rx = np.matrix([[1 ,  0,  0],
+        Rx = np.array([[1 ,  0,  0],
                         [0 , CR, -SR],
                         [0 , SR,  CR]])
-        Ryc = np.matrix([[CPc, 0 ,  -SPc],
+        Ryc = np.array([[CPc, 0 ,  -SPc],
                         [0 ,  1,  0 ],
                         [SPc, 0,  CPc]])
-        Rxc = np.matrix([[1 ,  0,  0],
+        Rxc = np.array([[1 ,  0,  0],
                         [0 , CRc, -SRc],
                         [0 , SRc,  CRc]])
-        R = Rz*Ry*Rx*Rxc.T*Ryc.T
+        R = Rz @ Ry @ Rx @ Rxc.T @ Ryc.T # use @ matrix operator for multiplication
         headingc = (np.arctan2(R[0,1], R[0,0])+2*np.pi)%(2*np.pi)
         return headingc, pitchc, rollc
         
@@ -391,7 +391,37 @@ class AttitudeCorrectionLinear(AttitudeCorrection):
     # implement the specific function.
     def attitude_correction(self, heading, pitch, roll):
         return  heading, self.a*pitch+ self.b, roll
-    
+
+class DepthCorrection(Coroutine):
+
+    def __init__(self, t, depth, RTC_year_base=2000):
+        super().__init__()
+        self.RTC_year_base = RTC_year_base
+        self.coro_fun = self.coro_add_depth(t, depth)
+        
+    @coroutine
+    def coro_add_depth(self, t, depth):
+        ifun = interp1d(t, depth, assume_sorted=True)
+        direction = None
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                tm =  get_ensemble_time(ens,self.RTC_year_base)
+                z = float(ifun(tm))
+                ens['variable_leader']['XdcrDepth'] = z
+                if direction is None:
+                    direction = 2*int(ens['fixed_leader']['Xdcr_Facing']=='Down')-1
+                    cell_size = ens['fixed_leader']['DepthCellSize']
+                    n_cells = ens['fixed_leader']['N_Cells']
+                    z0 = ens['fixed_leader']['FirstBin']
+                    r = z0 + np.arange(n_cells)*cell_size
+                z = direction*r + z
+                ens['depth'] = dict(z = z)
+                self.send(ens)
+        self.close_coroutine()
 #
 #
 # I don't think we need this anymore. Not tested.

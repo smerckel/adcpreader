@@ -7,7 +7,7 @@ import numpy as np
 
 from rdi import __VERSION__
 
-from rdi.coroutine import Coroutine
+from rdi.coroutine import coroutine, Coroutine
 
 # add filename=... to log to a file instead.
 logging.basicConfig(level=logging.INFO)
@@ -113,11 +113,28 @@ def get_ensemble_time(ensemble, baseyear=2000):
     '''
     return RTC_to_unixtime(ensemble['variable_leader']['RTC'], baseyear)
 
-
+def make_pipeline(*processes):
+    left = processes[:-1]
+    right = processes[1:]
+    for _l, _r in zip(left, right):
+        _l.send_to(_r)
+    end_process = right[-1]
+    start_process = left[0]
+    try:
+        # connect the input from the first process to the input of the last.
+        # the connections between the processes seem to be persistent.
+        end_process.coro_fun = start_process.coro_fun
+    except AttributeError:
+        pass # the first process has no coro_fun, probably a reader
+             # object that pushes the data into the pipeline. Then there is nothing to do
+    return end_process
+        
+        
 def add_timestamp(ensembles, baseyear=2000):
     ''' Generator function to add unix time to ensemble. 
     A new variable 'timestamp' is created for the section 'variable_leader'.
     '''
+    Q #function Obselete?
     for ens in ensembles:
         try: 
             ens['variable_leader']['Timestamp'] # if it exists, don't overwrite.
@@ -497,6 +514,13 @@ class PD0(Coroutine):
         self.add_unix_timestamp = add_unix_timestamp
         self.baseyear = baseyear
 
+    def __enter__(self):
+        pass
+
+    def __exit__(self, type, value, tb):
+        if type is None:
+            self.close_coroutine()
+            
     def get_info(self, filename):
         ''' Get start/end end size information of a PD0 file
 
@@ -676,113 +700,3 @@ class PD0(Coroutine):
         crc %= 0x10000
         return crc == checksum
 
-class Pipeline(object):
-    '''
-    Generally, the data read from the PD0 files will be further processed in a pipeline style.
-    This class provides the basic machinery for setting up this pipeline. The main idea is
-    that a source generator feeds its data through a pipeline, until the data are consumed by a sink
-    
-    ::
-    
-        source -> op1 -> op2 -> op3 ... -> opn -> sink
-               |____________________________|  
-                    pipeline of operations
-
-g    Any number of operations can be added to the pipeline. The source is assumed to be an ensemble
-    generator PD0.ensemble_generator(), which is automatically invoked when calling the pipeline.
-
-    Examples
-    --------
-    >>> pipeline = Pipeline()
-    >>> # define a filter operation
-    >>> vl = rdi_qc.ValueLimit()
-    >>> vl.set_discard_condition('variable_leader', 'Pitch','>',0)
-    >>> # abd add it to the pipeline
-    >>> pipeline.add(vl)
-    >>> # loop through all ensembles (this is for now our sink)
-    >>> for ens in pipeline("../data/PF230519.PD0"):
-            pass
-    '''
-
-    def __init__(self):
-        self.reader = PD0()
-        self._operations = []
-
-    def __call__(self, dvl_filenames):
-        return self.build(dvl_filenames)
-    
-    def add(self, new_operation):
-        ''' add a new operation to the pipeline.
-
-        This method takes a generator function and its it to its list of operators. These generator
-        functions of course need to know what to do with an ensemble. Typical functions are qc operations
-        and transformations. All these generator functions take another generator as argument. Some of them
-        also require further arguments. When the pipeline is built, it is assumed that each operations requires
-        a generator argument and a generator argument only. If additional arguments are to be passed, the
-        currying method can be used.
-
-        Parameters
-        ----------
-        new_operation: generator function
-           a new generator function (transformation for example) to be added to the pipeline of operations
-        
-        
-            
-        Examples
-        --------
-        An example of  the currying method.
-
-        >>> p = Pipeline()
-        >>> p.add(lambda g: some_operator(g, other_parameter))
-
-        '''
-        self._operations.append(new_operation)
-
-    def build(self, dvl_filenames):
-        ''' Build the pipeline.
-
-        This method (which is also invoked when the class is called directly) builds the pipeline. The
-        initial generator is constructed by the PD0.ensenmble generator.
-
-        Parameters
-        ----------
-        dvl_filenames: string or list of strings
-             filenames of the DVL PD0 files
-
-        Returns
-        -------
-        generator
-             generator that is typically to be consumed by a sink.
-        '''
-        pipeline = self.reader.ensemble_generator(dvl_filenames)
-        for op in self._operations:
-            pipeline = op(pipeline)
-        return pipeline
-
-
-    
-if __name__ == "__main__":
-    import rdi_writer
-    import rdi_qc
-    
-    filename = "../data/PF230519.PD0"
-    
-    pd0 = PD0()
-
-    clipper = rdi_qc.ValueLimit()
-    clipper.set_discard_condition('velocity', 'Velocity1','||>',1)
-    clipper.set_discard_condition('velocity', 'Velocity2','||>',1)
-    clipper.set_discard_condition('velocity', 'Velocity3','||>',1)
-    clipper.set_discard_condition('velocity', 'Velocity4','||>',1)
-
-    counter = rdi_qc.Counter()
-
-    writer = rdi_writer.AsciiWriter()
-
-    
-    pd0.send_to(clipper)
-
-    clipper.send_to(counter)
-    counter.send_to(writer)
-    
-    pd0.process(filename)

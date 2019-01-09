@@ -48,10 +48,10 @@ class RotationMatrix(object):
         SH = np.sin(heading) 
         SP = np.sin(pitch)   
         SR = np.sin(roll)    
-        M = np.matrix([[CH*CR+SH*SP*SR, SH*CP, CH*SR-SH*SP*CR, 0],
-                       [-SH*CR+CH*SP*SR, CH*CP,-SH*SR-CH*SP*CR,0],
-                       [-CP*SR, SP, CP*CR, 0],
-                       [0, 0 ,0, 1]])
+        M = np.array([[CH*CR+SH*SP*SR, SH*CP, CH*SR-SH*SP*CR, 0],
+                      [-SH*CR+CH*SP*SR, CH*CP,-SH*SR-CH*SP*CR,0],
+                      [-CP*SR, SP, CP*CR, 0],
+                      [0, 0 ,0, 1]])
         return M
         
     def __call__(self, heading, pitch, roll):
@@ -61,10 +61,10 @@ class RotationMatrix(object):
     
 class TransformMatrix(object):
     def create_matrix(self, a, b, c, d):
-        M = np.matrix([[c*a, -c*a, 0, 0],
-                       [0  ,    0, -c*a, c*a],
-                       [b  ,    b,    b,   b],
-                       [d  ,    d,   -d,  -d]])
+        M = np.array([[c*a, -c*a, 0, 0],
+                      [0  ,    0, -c*a, c*a],
+                      [b  ,    b,    b,   b],
+                      [d  ,    d,   -d,  -d]])
         return M
     
     def __call__(self, a, b, c, d):
@@ -83,13 +83,10 @@ class Transform(Coroutine):
     PARAMS = dict(velocity = ['Velocity'],
                   bottom_track = ['BTVel'])
     CACHE = {}
-    # If parameters are modified, propagate the modifications back into the ens data (pitch for example).
-    UPDATE_CORRECTIONS = True
     
     def __init__(self, inverse = False):
         super().__init__()
         self.inverse = inverse
-        self.hooks = {}
         self.coro_fun = self.coro_transform_ensembles()
 
     @coroutine
@@ -104,27 +101,20 @@ class Transform(Coroutine):
                 self.transform_velocities_in_ensemble(ens)
                 self.send(ens)
         self.close_coroutine()
-        
+
+    # provide support for new matrix multiplication notation @
+    def __matmul__(self, ri):
+        return self.__mul__(ri)
+    
     def __mul__(self, ri):
         ''' Creates a create_transformation_matrix() method from the left and right arguments of the * operator. '''
         T = Transform()
-        T.create_transformation_matrix = lambda *x: self.create_transformation_matrix(*x) * ri.create_transformation_matrix(*x)
+        T.create_transformation_matrix = lambda *x: self.create_transformation_matrix(*x) @ ri.create_transformation_matrix(*x)
         if self.transformed_coordinate_system:
             T.transformed_coordinate_system = self.transformed_coordinate_system
         else:
             T.transformed_coordinate_system = ri.transformed_coordinate_system
-        T.hooks = dict((k,v) for k,v in chain(ri.hooks.items(), self.hooks.items()))
         return T
-
-    def attitude_correction(self, hdg, ptch, roll):
-        ''' Corrects the heading, pitch and roll using a callable with key "attitude_correction" in self.hooks'''
-        try:
-            f = self.hooks['attitude_correction']
-        except KeyError:
-            # no function found, return as is.
-            return hdg, ptch, roll
-        else:
-            return f(hdg, ptch, roll)
 
     def get_beam_configuration(self, ens):
         try:
@@ -157,11 +147,6 @@ class Transform(Coroutine):
         hdg = ens['variable_leader']['Heading']*np.pi/180.
         pitch = ens['variable_leader']['Pitch']*np.pi/180.
         roll = ens['variable_leader']['Roll']*np.pi/180.
-        hdg, pitch, roll = self.attitude_correction(hdg, pitch, roll)
-        if self.UPDATE_CORRECTIONS:
-            ens['variable_leader']['Heading'] = hdg/np.pi*180.
-            ens['variable_leader']['Pitch'] = pitch/np.pi*180.
-            ens['variable_leader']['Roll'] = roll/np.pi*180.
 
         attitude = Attitude(hdg, pitch, roll)
 
@@ -179,21 +164,24 @@ class Transform(Coroutine):
             for _v in v:
                 # make a note of the mask of this variable, if any.
                 try:
-                    mask = ens[k]['%s%d'%(_v,1)].mask
+                    #mask = ens[k]['%s%d'%(_v,1)].mask
+                    mask = np.array([ens[k]['%s%d'%(_v,i+1)].mask.astype(float) for i in range(4)])
                 except AttributeError:
                     mask = None
-                x = np.matrix([ens[k]['%s%d'%(_v,i+1)] for i in range(4)])
+                x = np.array([ens[k]['%s%d'%(_v,i+1)] for i in range(4)])
                 if x.shape[0] == 1: # for bottom track values
-                    xp = np.array(R * x.T)
+                    xp = np.array(R @ x.T)
                     for i in range(4):
                         ens[k]['%s%d'%(_v, i+1)] = float(xp[i])
                 else:
-                    xp = np.array(R * x)
-                    for i in range(4):
-                        if mask is None: 
-                            ens[k]['%s%d'%(_v, i+1)] = xp[i]                            
-                        else: #apply the mask again
-                            ens[k]['%s%d'%(_v, i+1)] = np.ma.masked_array(xp[i], mask)
+                    xp = np.array(R @ x)
+                    if mask is None: # no mask to apply
+                        for i in range(4):
+                            ens[k]['%s%d'%(_v, i+1)] = xp[i]
+                    else: # apply (rotated mask)
+                        maskp = np.array(R @ mask)!=0
+                        for i in range(4):
+                            ens[k]['%s%d'%(_v, i+1)] = np.ma.masked_array(xp[i], maskp[i])
                             
     def update_coordinate_frame_setting(self, ens):
         ''' Writes the new coordinate frame setting and records the original setting. '''

@@ -117,10 +117,16 @@ class ValueLimit(QualityControl):
     def set_discard_condition(self, section, parameter, operator, value):
         ''' Set a condition to discard readings.
 
-        section: section name of the data block. Example: velocity
-        parameter: name of parameter in this section. Example Velocity1
-        operator: comparison operator. Example: ">" or "||>"
-        value:    the value to compare with.
+        Parameters
+        ----------
+        section : string
+            section name of the data block. Example: velocity
+        parameter : string
+            name of parameter in this section. Example Velocity1
+        operator : string
+            comparison operator. Example: ">" or "||>"
+        value : float
+            the value to compare with.
         '''
         self.conditions.append((section, parameter, operator, value))
 
@@ -233,19 +239,22 @@ class Counter(Coroutine):
 
     '''
     
-    def __init__(self):
+    def __init__(self, verbose=False):
         super().__init__()
         self.counts = []
-        self.coro_fun = self.coro_counter()
+        self.coro_fun = self.coro_counter(verbose)
 
     @coroutine
-    def coro_counter(self):
+    def coro_counter(self, verbose=False):
         while True:
             try:
                 ens = (yield)
             except GeneratorExit:
                 break
             else:
-                self.counts.append(ens['variable_leader']['Ensnum'])
+                n = ens['variable_leader']['Ensnum']
+                self.counts.append(n)
+                if verbose:
+                    print("Ensemble : {:4d}".format(n))
                 self.send(ens)
         self.close_coroutine()
