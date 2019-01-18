@@ -96,7 +96,7 @@ class DVL_GliderPitchBase(object):
         conf['coord'] = 'BEAM'
         conf['pitch_correction_factor']=1.0
         conf['pitch_correction_offset']=0.0
-        self.write_config(config_filename, config)
+        self.write_config(config_filename, conf)
 
     def write_config(self, config_filename, config):
         ''' write a default config file
@@ -262,7 +262,6 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
         reader.process(dvl_fns)
         # correct DVL time for offset
         depth_rate, pitch = self.get_depth_rate(data_structure, gld_fns)
-        self.tmp = dict(depth_rate=depth_rate, pitch=pitch, data = data_structure)
         a,b = self.fit_to_depth_rate(data_structure, depth_rate)
         self.config['pitch_correction_factor'] = a
         self.config['pitch_correction_offset'] = b
