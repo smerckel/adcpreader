@@ -65,6 +65,15 @@ class TransformMatrix(object):
                       [0  ,    0, -c*a, c*a],
                       [b  ,    b,    b,   b],
                       [d  ,    d,   -d,  -d]])
+        #M = np.array([[c*a, -c*a, 0, 0], # using b1, b2 b3
+        #             [c*a  ,   c*a, -2*c*a, 0],
+        #            [2* b  ,    2*b,    0,   0],
+        #           [0  ,   0,   0,  0]])
+        #M = np.array([[c*a, -c*a, 0, 0], # using b1, b2 b4
+        #              [-c*a  ,  - c*a, 0, 2*c*a],
+        #              [2* b  ,    2*b,    0,   0],
+        #              [0  ,   0,   0,  0]])
+
         return M
     
     def __call__(self, a, b, c, d):
@@ -102,6 +111,15 @@ class Transform(Coroutine):
                 self.send(ens)
         self.close_coroutine()
 
+    def set_coordinate_systems(self, old_coordinate_system, new_coordinate_system, inverse=False):
+        if not inverse:
+            self.new_coordinate_system = new_coordinate_system
+            self.old_coordinate_system = old_coordinate_system
+        else:
+            self.old_coordinate_system = new_coordinate_system
+            self.new_coordinate_system = old_coordinate_system
+            
+        
     # provide support for new matrix multiplication notation @
     def __matmul__(self, ri):
         return self.__mul__(ri)
@@ -110,10 +128,12 @@ class Transform(Coroutine):
         ''' Creates a create_transformation_matrix() method from the left and right arguments of the * operator. '''
         T = Transform()
         T.create_transformation_matrix = lambda *x: self.create_transformation_matrix(*x) @ ri.create_transformation_matrix(*x)
-        if self.transformed_coordinate_system:
-            T.transformed_coordinate_system = self.transformed_coordinate_system
+        if self.new_coordinate_system:
+            T.new_coordinate_system = self.new_coordinate_system
+            T.old_coordinate_system = ri.old_coordinate_system
         else:
-            T.transformed_coordinate_system = ri.transformed_coordinate_system
+            T.new_coordinate_system = ri.new_coordinate_system
+            raise ValueError("Fix me: Don't know what to set here for the old coordinate system.")
         return T
 
     def get_beam_configuration(self, ens):
@@ -144,6 +164,7 @@ class Transform(Coroutine):
     def transform_velocities_in_ensemble(self, ens):
         ''' Transforms the velocities in given ensemble. 
         '''
+        self.__check_coordinate_system(ens)
         hdg = ens['variable_leader']['Heading']*np.pi/180.
         pitch = ens['variable_leader']['Pitch']*np.pi/180.
         roll = ens['variable_leader']['Roll']*np.pi/180.
@@ -157,7 +178,17 @@ class Transform(Coroutine):
         params = self.get_params(ens)
         self.__transform_velocities_in_ensemble(ens, R, params)
         self.update_coordinate_frame_setting(ens)
+
+    def __check_coordinate_system(self, ens):
+        if ens['fixed_leader']['CoordXfrm'] != self.old_coordinate_system:
+            msg = '''Cannot apply the transformation as the transformation
+matrix appears to transform from a different coordinate
+system than the ensemble has.'''
+            err_value = dict(ensemble = ens['fixed_leader']['CoordXfrm'],
+                             transformation = self.old_coordinate_system)
+            raise ValueError(msg, err_value)
         
+            
     def __transform_velocities_in_ensemble(self, ens, R, params):
         for k, v in params.items():
 
@@ -185,20 +216,17 @@ class Transform(Coroutine):
                             
     def update_coordinate_frame_setting(self, ens):
         ''' Writes the new coordinate frame setting and records the original setting. '''
-        if self.transformed_coordinate_system:
+        if self.new_coordinate_system:
             ens['fixed_leader']['OriginalCoordXfrm'] = ens['fixed_leader']['CoordXfrm']
-            ens['fixed_leader']['CoordXfrm'] = self.transformed_coordinate_system
+            ens['fixed_leader']['CoordXfrm'] = self.new_coordinate_system
         else:
-            raise ValueError('Transformed_coordinate_system is NOT set!')
+            raise ValueError('new_coordinate_system is NOT set!')
         
             
 class TransformSFU_ENU(Transform):
     def __init__(self, inverse = False):
         super().__init__(inverse)
-        if inverse:
-            self.transformed_coordinate_system = 'Ship'
-        else:
-            self.transformed_coordinate_system = 'Earth'
+        self.set_coordinate_systems('Ship', 'Earth', inverse)
 
     def create_transformation_matrix(self, attitude, beamconfig):
         R = RotationMatrix()
@@ -210,10 +238,7 @@ class TransformSFU_ENU(Transform):
 class TransformXYZ_ENU(Transform):
     def __init__(self, inverse = False):
         super().__init__(inverse)
-        if inverse:
-            self.transformed_coordinate_system = 'Instrument'
-        else:
-            self.transformed_coordinate_system = 'Earth'
+        self.set_coordinate_systems('Instrument', 'Earth', inverse)
 
     def create_transformation_matrix(self, attitude, beamconfig):
         R = RotationMatrix()
@@ -224,12 +249,12 @@ class TransformXYZ_ENU(Transform):
 
 
 class TransformRotation(Transform):
-    def __init__(self, hdg, pitch, roll, transformed_coordinate_system=None):
+    def __init__(self, hdg, pitch, roll, new_coordinate_system=None):
         inverse = False
         super().__init__(inverse)
         R = RotationMatrix()
         self.R = R(hdg, pitch, roll)
-        self.transformed_coordinate_system = transformed_coordinate_system
+        self.new_coordinate_system = new_coordinate_system
             
     def create_transformation_matrix(self, *p):
         return self.R
@@ -237,10 +262,7 @@ class TransformRotation(Transform):
 class TransformBEAM_XYZ(Transform):
     def __init__(self,inverse = False):
         super().__init__(inverse)
-        if self.inverse:
-            self.transformed_coordinate_system = 'Beam'
-        else:
-            self.transformed_coordinate_system = 'Instrument'
+        self.set_coordinate_systems('Beam', 'Instrument', inverse)
         
     def create_transformation_matrix(self, attitude, beamconfig):
         try:
@@ -256,10 +278,7 @@ class TransformXYZ_SFU(Transform):
     def __init__(self, hdg, pitch, roll, inverse = False):
         super().__init__(inverse)
         self.attitude = Attitude(hdg, pitch, roll)
-        if self.inverse:
-            self.transformed_coordinate_system = 'Instrument'
-        else:
-            self.transformed_coordinate_system = 'Ship'
+        self.set_coordinate_systems('Instrument','Ship', inverse)
                 
     def create_transformation_matrix(self, attitude, beamconfig):
         try:

@@ -8,6 +8,8 @@ import gsw
 from rdi import __VERSION__
 from rdi import rdi_transforms
 from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
+from rdi.rdi_transforms import RotationMatrix
+
 from rdi.coroutine import coroutine, Coroutine
 
 
@@ -422,6 +424,244 @@ class DepthCorrection(Coroutine):
                 ens['depth'] = dict(z = z)
                 self.send(ens)
         self.close_coroutine()
+
+
+
+class KalmanFilter(object):
+    ''' A Kalman filter implementation to estimate the water depth.
+
+    The measurement: waterdepth = depth of DVL/ADCP + range till bottom
+    '''
+    
+    def __init__(self, qH, rH):
+        '''
+        Parameters
+        ----------
+        qH: float
+            uncertainty for water depth model
+        rH: float
+            uncertainty in range reading
+        '''
+        self.noise_settings = dict(qH=qH, rH=rH)
+        self.t0 = None
+        self.F = np.array([[1., 0.],
+                           [0., 1.]])
+        self.H = np.array([[1., 0.]])
+        self.I = np.eye(2)
+        self.x_post = None
+        
+    def initial_step(self,Hp):
+        if Hp is None:
+            self.x_post = np.array([[100,0]]).T
+            self.P_post = np.diag([100, 1])
+        else:
+            self.x_post = np.array([[Hp,0]]).T
+            self.P_post = np.diag([0.2**2, 1])
+            
+
+    def update(self, t, Hp):
+        ''' Updates Kalman filter
+
+        Parameters
+        ----------
+        t: float
+           time in seconds
+        H: float
+           measured water_depth (from ADCP to the sea bed + depth reading)
+        
+        Returns
+        -------
+        x_post : array of floats
+              posterior estimate of the state vector (water_depth, water_depth_rate)
+        P_post : 2x2 array of floats
+              posterior covariance matrix
+        '''
+        if self.t0 is None:
+            self.initial_step(Hp)
+        else:
+            dt = t - self.t0
+            # set model uncertainties
+            qH =self.noise_settings['qH'] # always like this.
+            rH =self.noise_settings['rH'] 
+            q = qH*np.array([[dt**2/2, dt]]).T
+            Q = np.diag(q)
+            H = self.H
+            # the measurement:
+            y = np.array([[Hp]])
+            R = np.array([[rH]])
+            I = self.I
+            P_post = self.P_post
+            x_post = self.x_post
+            #
+            F = self.F
+            F[0,1] = dt
+            P_pre = F @ P_post @ F.T + Q
+            K = P_pre @ H.T @ np.linalg.inv(H @ P_pre @ H.T + R)
+            x_pre = F @ x_post
+            if not Hp is None:
+                self.x_post = x_pre + K @ ( y - H @ x_pre)
+                self.P_post = (I -K @ H) @ P_pre @ (I - K @ H).T + K @ R @ K.T
+            else:
+                self.x_post = x_pre
+                self.P_post = P_pre
+        self.t0 = t
+        return self.x_post, self.P_post
+
+
+
+class CorrectDepthRange(Coroutine):
+    ''' Correct Range measurements for pitch and roll 
+
+    '''
+    
+    def __init__(self, pitch_mount_angle, XdcrDepth_scale_factor = 10, qH=0.0001**2, rH=0.20**2):
+        '''
+        Parameters
+        ----------
+        pitch_mount_angle: float
+            mounting angle of the DVL in degrees
+        XdcrDepth_scale_factor: float (default: 10)
+            a scale factor to convert depth to meters 
+        
+        qH: float (default 0.0001**2)
+        rH: float (default 0.20**2)
+            KalmanFilter settings
+        '''
+        super().__init__()
+        self.XdcrDepth_scale_factor = XdcrDepth_scale_factor
+        self.T = RotationMatrix()
+        self.nbeams = None
+        self.theta = None
+        self.kf = KalmanFilter(qH =qH, rH=rH)
+        self.pitch_mount_angle = pitch_mount_angle*np.pi/180.
+        self.coro_fun = self.coro_correct_range()
+        
+    @coroutine
+    def coro_correct_range(self):
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                self.correct_ensemble(ens)
+                self.send(ens)
+        self.close_coroutine()
+
+    def get_fixed_leader_data(self, ens):
+        if ens['fixed_leader']['Xdcr_Facing']!='Down':
+            raise ValueError('The VelocityRangeLimit operator requires the DVL/ADCP to be downward looking')
+            # this is not strictly necessary, but if uipward looking the B array is different, and possibly some
+            # other things that I have not thought about, as it is not relevant for glider work.
+        # gets data from the fixed leader and other one off computations
+        nbeams = ens['fixed_leader']['N_Beams']
+        theta_deg, unit = ens['fixed_leader']['Beam_Angle'].split()
+        theta = np.pi/180.*float(theta_deg)
+        self.nbeams = nbeams
+        self.theta = theta
+        self.B = np.array([[-np.sin(theta), np.sin(theta), 0. , 0. ],
+                           [0., 0., np.sin(theta), -np.sin(theta) ],
+                           [np.cos(theta), np.cos(theta), np.cos(theta), np.cos(theta)],
+                           [0 , 0, 0, 0]])
+        n_cells = ens['fixed_leader']['N_Cells']
+        self.bin_size = ens['fixed_leader']['DepthCellSize']
+        r0 = ens['fixed_leader']['FirstBin']
+        self.ri = np.arange(n_cells)  * self.bin_size + r0
+
+
+        
+    def correct_ensemble(self, ens):
+        '''check ensemble for passing/nonpassing of velocity profile data
+        
+        Parameters
+        ----------
+        ens : dictionary
+            ensemble dictionary
+
+        Returns
+        -------
+        True  
+            
+
+        The strategy followed here in is the following. The DVL
+        records the distance to the seabed as seen by each of its four
+        beams. Sometimes velotity readings are registered that seem to
+        come from within the seabed due to reflections I suppose. We
+        compute the distance from the transducer for the beam that has
+        observed the smallest range, as this one, and all the others
+        will contaminate the velocity reading. This cell and all
+        further cells are masked. 
+        
+            It may be that when this applies the current ensemble has
+        no informtion on bottom range. To fill in these data, a Kalman
+        filter is used. I am not entirely sure whether this is really
+        necessary. The upshot is that we get an estiamte of the water
+        depth, which is written to the bottom_track section, as
+        variable 'WaterDepth'.
+        '''
+        if self.nbeams is None:
+            self.get_fixed_leader_data(ens)
+        # get Range measurements. They are in the ADCP cooridinate, so, divide by cos(theta) to get the range length    
+        R = np.diag([ens['bottom_track']['Range%d'%(i+1)] for i in range(self.nbeams)])/np.cos(self.theta) 
+        z_dvl = ens['variable_leader']['XdcrDepth'] * self.XdcrDepth_scale_factor # this one runs late normally.
+        pitch = ens['variable_leader']['Pitch']  * np.pi/180 
+        roll = ens['variable_leader']['Roll']  * np.pi/180
+        t = ens['variable_leader']['Timestamp'] 
+        T = self.T(0, pitch, roll)
+        Bp = T.T @ self.B @ R
+        Rz = Bp[2,:] # z component of range measurements.
+        # use R measurements that are further than 0.5 m
+        Rz_reduced = Rz.compress(Rz>0.5)
+        # we require minimum three values, and a std<1 m
+        if Rz_reduced.shape[0]>=3 and np.std(Rz_reduced)<1.0:
+            y = z_dvl + Rz_reduced.mean()
+            x0, P0 = self.kf.update(t, y)
+        else: # otherwise get x_post as stored in KF
+            y= np.nan
+            x0, P0 = self.kf.update(t, y)
+        H = x0[0,0] # estimate of water depth.
+        h = H - z_dvl
+        #r = h*np.cos(self.theta) - self.bin_size # to compare with self.ri
+        #for i in range(self.nbeams):
+        #    s = 'Velocity%d'%(i+1)
+        #    ens['velocity'][s] = self.discard_greater(self.ri, r, ens['velocity'][s])
+
+        bt = ens['bottom_track']
+        bt['waterdepth_filtered']=H
+        bt['waterdepth'] = y
+        bt['altitude'] = h
+
+class AdvanceExternalDataInput(Coroutine):
+    ''' Class to advance external data (attitude and depth readings) by a given number of ensembles
+
+    '''
+    def __init__(self, n_samples_to_advance):
+        super().__init__()
+        self.n_advance = n_samples_to_advance
+        self.coro_fun = self.advance_ensembles()
+        self.backlog = deque(maxlen=self.n_advance)
+        
+    @coroutine
+    def advance_ensembles(self):
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                if len(self.backlog)==self.n_advance:
+                    ens_backlog = self.backlog.popleft()
+                    vl_backlog = ens_backlog['variable_leader']
+                    vl = ens['variable_leader']
+                    for k in "XdcrDepth Pitch Roll Heading".split():
+                        vl_backlog[k] = vl[k]
+                    self.send(ens_backlog)
+                # put newled read ensemble in backlog
+                self.backlog.append(ens)
+        self.close_coroutine()
+
+
+        
 #
 #
 # I don't think we need this anymore. Not tested.

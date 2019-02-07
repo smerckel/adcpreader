@@ -12,10 +12,9 @@ def coroutine(func):
 
 
 class Coroutine(object):
-
     def __init__(self):
         self._targets=[]
-        
+
     def send_to(self, *targets):
         for target in targets:
             self._targets.append(target.coro_fun)

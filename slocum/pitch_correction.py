@@ -224,7 +224,7 @@ class DVL_GliderPitch_Tune(DVL_GliderPitchBase):
             idx = np.where(np.abs(depth_rate-wgp)<0.03)[0]
             a,b  = fmin(self.__cost_fun, [0.83, 0], args=(pitch[idx], by[idx], bz[idx], depth_rate[idx]))
         elif self.config['fit']=='proportional':
-            b = self.config['pitch_offset']
+            b = self.config['pitch_correction_offset']
             idx = np.where(np.isfinite(by+bz+pitch+depth_rate))[0]
             a  = fmin(self.__cost_fun_proportional, 0.82,
                         args=(pitch[idx], by[idx], bz[idx], depth_rate[idx], b))

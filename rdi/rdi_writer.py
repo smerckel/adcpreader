@@ -182,13 +182,15 @@ class Writer(Coroutine):
                 continue
             if p=="*":
                 for k, v in ens[s].items():
+                    key = "%s %s"%(s,k)
                     try:
-                        data[k].append(v)
+                        data[key].append(v)
                     except KeyError:
                         pass
             else:
+                key = "%s %s"%(s,p)
                 try:
-                    data[p].append(ens[s][p])
+                    data[key].append(ens[s][p])
                 except KeyError:
                     pass
 
@@ -558,7 +560,9 @@ class NDFWriter(Writer):
             data = self.create_ndf(config, data1d, data2d)
             data.save(self.output_file)
 
-
+    def clear_config(self):
+        self.__chache['config']=None
+        
     def set_filename_from_pd0(self, filename_pd0,annotation=None):
         fn_base, fn_ext = os.path.splitext(filename_pd0)
         if annotation:
@@ -619,6 +623,7 @@ class DataStructure(Writer):
     def __init__(self):
         super().__init__()
         self.data = defaultdict(lambda : [])
+        self.config = defaultdict(lambda : [])
         self.coro_fun = self.coro_write_ensembles(fd=None)
         
     def __getattr__(self, item):
@@ -634,7 +639,10 @@ class DataStructure(Writer):
             raise AttributeError("%s has no attribute '%s'."%(self, item))
             
     def write_configuration(self, config, fd):
-        pass
+        self.config['N_Cells'] = config['N_Cells']
+        self.config['DepthCellSize'] = config['DepthCellSize']
+        self.config['FirstBin'] = config['FirstBin']
+        self.config['r'] = config['FirstBin'] + np.arange(config['N_Cells'])*config['DepthCellSize']
     
     def write_header(self, config, fd):
         pass
