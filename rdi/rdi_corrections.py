@@ -213,6 +213,95 @@ class ScaleEchoIntensities(Coroutine):
                 self.send(ens)
         self.close_coroutine()
 
+
+class BinMapping(Coroutine):
+    ''' Class to apply bin mapping
+
+    Parameters
+    ----------
+    pitch_mounting_angle : float
+    roll_mounting_angle : float
+    
+    '''
+    
+    def __init__(self, pitch_mount_angle=0, roll_mount_angle=0):
+        super().__init__()
+        self.coro_fun = self.coro_map_bins(pitch_mount_angle,
+                                           roll_mount_angle)
+
+
+    def get_configuration(self, ens, pitch_offset, roll_offset):
+        # do the one-off calculations and return a tuple with the results.
+        if ens['fixed_leader']['CoordXfrm']!='Beam':
+            raise ValueError('In order to apply bin mapping, the coordinate system should be BEAM')
+        if ens['fixed_leader']['N_Beams'] != 4:
+            raise ValueError('4 Beam data is expected.')
+        beam_angle = float(ens['fixed_leader']['Beam_Angle'].split()[0]) * np.pi/180
+        r0 = ens['fixed_leader']['FirstBin']
+        nbins = ens['fixed_leader']['N_Cells']
+        binsize = ens['fixed_leader']['DepthCellSize']
+        r = (r0 + np.arange(nbins) * binsize).reshape(1, -1)
+        beam_offsets_pitch = np.array([0, 0, beam_angle, -beam_angle]).reshape(-1, 1)
+        beam_offsets_roll = np.array([beam_angle, -beam_angle, 0, 0]).reshape(-1, 1)
+
+        centre_bin = nbins//2+1
+        n_edges = nbins//2*2+2 # always even
+        edges = (np.arange(n_edges)-nbins//2 -0.5) * binsize
+        j = np.arange(nbins) # index of velocity readings per beam
+        return (pitch_offset, roll_offset, beam_angle, beam_offsets_pitch, beam_offsets_roll,
+                r, nbins, centre_bin, edges, j)
+        
+        
+    @coroutine    
+    def coro_map_bins(self, pitch_offset, roll_offset):
+        try:
+            ens = (yield)
+        except GeneratorExit:
+            self.close_coroutine()
+        else:
+            config = self.get_configuration(ens, pitch_offset, roll_offset) # < do this only once...
+            self.map_bins(ens, config)
+            self.send(ens)
+            while True:
+                try:
+                    ens = (yield)
+                except GeneratorExit:
+                    break
+                else:
+                    self.map_bins(ens, config)
+                    self.send(ens)
+            self.close_coroutine()
+
+    def map_bins(self, ens, config):
+        ''' Map bins
+        
+        Parameters
+        ----------
+        ens : dictionary
+              ensemble dictionary
+        config : tuple
+              configuration and one-off calculations done from the info in the first ens.
+
+        Modifies the velocity section only, and remaps velocity readings when necessary.
+
+        '''
+        (pitch_offset, roll_offset, beam_angle,
+         beam_offsets_pitch, beam_offsets_roll,
+         r, nbins, centre_bin, edges, j) = config
+        n_beams = 4 # this works for 4 beams only anyway.
+        pitch = ens['variable_leader']['Pitch'] * np.pi/180. + pitch_offset
+        roll = ens['variable_leader']['Roll'] * np.pi/180. + roll_offset
+
+        CP = np.cos(pitch + beam_offsets_pitch)   
+        CR = np.cos(roll + beam_offsets_roll)   
+        r33 = CP*CR/np.cos(beam_angle)
+        m = r33 @ r
+
+        idx = (j + np.digitize(r-m, edges) - centre_bin).clip(0, nbins-1) # make sure we don't get out of bounds
+        
+        for i in range(n_beams):
+            ens['velocity']['Velocity%d'%(i+1)] = ens['velocity']['Velocity%d'%(i+1)][idx[i]]
+        
 class Aggregator(Coroutine):
     '''Class to aggregate a number of ensembles into averages of time,
     roll, pitch, heading, sound speed, salinity temperature, pressure,
@@ -519,7 +608,7 @@ class CorrectDepthRange(Coroutine):
         Parameters
         ----------
         pitch_mount_angle: float
-            mounting angle of the DVL in degrees
+            mounting angle of the DVL in radians
         XdcrDepth_scale_factor: float (default: 10)
             a scale factor to convert depth to meters 
         
@@ -533,7 +622,7 @@ class CorrectDepthRange(Coroutine):
         self.nbeams = None
         self.theta = None
         self.kf = KalmanFilter(qH =qH, rH=rH)
-        self.pitch_mount_angle = pitch_mount_angle*np.pi/180.
+        self.pitch_mount_angle = pitch_mount_angle
         self.coro_fun = self.coro_correct_range()
         
     @coroutine

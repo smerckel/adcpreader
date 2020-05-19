@@ -192,7 +192,6 @@ class ValueLimit(QualityControl):
                 f = self.operations[operator]
                 condition = f(v, value)
                 ens[section][parameter] = self.apply_condition(condition, v)
-                
                 for p in parameters:
                     if alt_section:
                         s = alt_section
@@ -314,7 +313,7 @@ class Counter(Coroutine):
     
     def __init__(self, verbose=False):
         super().__init__()
-        self.counts = []
+        self.counts = 0
         self.coro_fun = self.coro_counter(verbose)
 
     @coroutine
@@ -326,8 +325,8 @@ class Counter(Coroutine):
                 break
             else:
                 n = ens['variable_leader']['Ensnum']
-                self.counts.append(n)
+                self.counts+=1
                 if verbose:
-                    print("Ensemble : {:4d}".format(n))
+                    print("Ensemble : {:4d}/{:5d}".format(n, self.counts))
                 self.send(ens)
         self.close_coroutine()

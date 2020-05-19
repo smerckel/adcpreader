@@ -21,7 +21,7 @@ TransformationTranslations = dict(Earth = 'east north up error'.split(),
 
 PARAMETERTRANSLATIONS = dict(XdcrDepth='Depth', Salin='Salinity', Temp='Temperature', Timestamp='Time')
 
-# all know and decoded parameters:
+# all known and decoded parameters:
 PARAMETERS = dict(fixed_leader = 'CPU_ver CPU_rev Sys_Freq Beam_Pattern Sensor_Cfg Xdcr_Head Xdcr_Facing Beam_Angle Beam_Cfg Real_Data N_Beams N_Cells N_PingsPerEns DepthCellSize Blank WaterMode CorrThresshold Code_Repts MinPG ErrVelThreshold TimeBetweenPings RawCoordXrfm CoordXfrm CoordXfrmOptions Vel_field1 Vel_field2 Vel_field3 Vel_field4 EA EB Sensors Sensors_Avail FirstBin XmtLength WL_Start WL_End FalseTargetThreshold LagDistance CPUBoardSerial Bandwidth XmtPower SystemSerialNumber'.split(),
                   variable_leader = 'Ensnum RTC BitResult Soundspeed XdcrDepth Heading Pitch Roll Salin Temp MPT Hdg_SD Pitch_SD Roll_SD ADC ErrorStatus Press PressVar RTCY2K'.split(),
                   velocity = 'Velocity1 Velocity2 Velocity3 Velocity4'.split(),
@@ -34,7 +34,8 @@ PARAMETERS = dict(fixed_leader = 'CPU_ver CPU_rev Sys_Freq Beam_Pattern Sensor_C
 PARAMETERS['variable_leader']+=['Timestamp']
 PARAMETERS['fixed_leader']+=['OriginalCoordXfrm']
 
-
+# Default parameters for writing.
+DEFAULT_SECTIONS = "velocity correlation percent_good variable_leader fixed_leader".split()
 DEFAULT_PARAMETERS = dict(velocity = PARAMETERS['velocity'],
                           correlation = PARAMETERS['correlation'],
                           percent_good = PARAMETERS['percent_good'],
@@ -50,8 +51,11 @@ def rad(x):
 class Writer(Coroutine):
     YEAR = 2000
     
-    def __init__(self):
+    def __init__(self, has_bottom_track=True): # some sections that are not necessisarily present
         super().__init__()
+        self.writeable_sections = list(DEFAULT_SECTIONS)
+        if has_bottom_track:
+            self.writeable_sections.append("bottom_track")
         self.is_context_manager = False
         self.__set_parameter_list()
         
@@ -143,6 +147,8 @@ class Writer(Coroutine):
                ensemble dictionary
         '''
         for s, k in self.parameters['scalar']:
+            if not s in self.writeable_sections:
+                continue
             # single out special cases
             if s=='variable_leader' and k=='Timestamp':
                 try:
@@ -260,11 +266,13 @@ class Writer(Coroutine):
         for k in DEFAULT_PARAMETERS['fixed_leader']:
             self.parameters['config'].append(('fixed_leader',k))
         for s in ['variable_leader', 'bottom_track']:
-            for k in DEFAULT_PARAMETERS[s]:
-                self.parameters['scalar'].append((s,k))
+            if s in DEFAULT_PARAMETERS:
+                for k in DEFAULT_PARAMETERS[s]:
+                    self.parameters['scalar'].append((s,k))
         for s in ['velocity', 'correlation', 'percent_good']:
-            for k in DEFAULT_PARAMETERS[s]:
-                self.parameters['vector'].append((s,k))
+            if s in DEFAULT_PARAMETERS:
+                for k in DEFAULT_PARAMETERS[s]:
+                    self.parameters['vector'].append((s,k))
         self.custom_parameters = dict(config=[], scalar=[], vector=[])
 
             
@@ -331,7 +339,7 @@ class NetCDFWriter(Writer):
     SECTIONS = 'fixed_leader variable_leader velocity echo bottom_track'.split()
                                     
                                     
-    def __init__(self, output_file=None, ensemble_size_limit=None):
+    def __init__(self, output_file=None, ensemble_size_limit=None, has_bottom_track=True):
         ''' Constructor
 
         Parameters:
@@ -341,7 +349,7 @@ class NetCDFWriter(Writer):
                              a single netcdf file. None or 0 means no limit (one file will be written).
         '''
         
-        super().__init__()
+        super().__init__(has_bottom_track=has_bottom_track)
         self.ensemble_size_limit = ensemble_size_limit
         self.file_counter = 0
         self.ensemble_counter = 0
@@ -470,7 +478,7 @@ class AsciiWriter(Writer):
                     "Ship" :"Starboard current-Forward current-Upward current-Error velocity".split("-"),
                     "Instrument": "Current in x direction-Current in y direction-Current in z direction-error velocity".split("-")}
                     
-    def __init__(self, output_file = sys.stdout, adcp_offset=0):
+    def __init__(self, output_file = sys.stdout, adcp_offset=0, has_bottom_track=True):
         '''AsciiWriter
         
         Parameters:
@@ -480,7 +488,7 @@ class AsciiWriter(Writer):
 
         '''
         
-        super().__init__()
+        super().__init__(has_bottom_track=has_bottom_track)
         self.comment = "#"
         self.adcp_offset = adcp_offset
         self.coro_fun = self.coro_write_ensembles(output_file)
@@ -517,8 +525,8 @@ class AsciiWriter(Writer):
                     pass
         
 class NDFWriter(Writer):
-    def __init__(self, output_file = None):
-        super().__init__()
+    def __init__(self, output_file = None, has_bottom_track=True):
+        super().__init__(has_bottom_track=has_bottom_track)
         self._global_parameters = dict()
         self.output_file = output_file
         self.coro_fun = self.coro_write_ensembles()
@@ -620,13 +628,27 @@ class NDFWriter(Writer):
 
 class DataStructure(Writer):
     ''' Simple in memory data structure '''
-    def __init__(self):
-        super().__init__()
-        self.data = defaultdict(lambda : [])
-        self.config = defaultdict(lambda : [])
+    def __init__(self, has_bottom_track=True):
+        super().__init__(has_bottom_track=has_bottom_track)
+        self.data = defaultdict(list)
+        self.config = defaultdict(list)
         self.coro_fun = self.coro_write_ensembles(fd=None)
         
     def __getattr__(self, item):
+        r = self._get_dataitem(item)
+        if r is None:
+            raise AttributeError("%s has no attribute '%s'."%(self, item))
+        else:
+            return r
+        
+    def __getitem__(self,item):
+        r = self._get_dataitem(item)
+        if r is None:
+            raise KeyError("%s has no key '%s'."%(self, item))
+        else:
+            return r
+
+    def _get_dataitem(self, item):
         if item in self.data.keys():
             if isinstance(self.data[item], list):
                 if self.data[item]:
@@ -636,8 +658,11 @@ class DataStructure(Writer):
                         self.data[item] = np.ma.vstack(self.data[item])
             return self.data[item]
         else:
-            raise AttributeError("%s has no attribute '%s'."%(self, item))
-            
+            None
+        
+    def keys(self):
+        return self.data.keys()
+    
     def write_configuration(self, config, fd):
         self.config['N_Cells'] = config['N_Cells']
         self.config['DepthCellSize'] = config['DepthCellSize']
