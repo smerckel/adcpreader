@@ -317,5 +317,141 @@ class TransformXYZ_BEAM(TransformBEAM_XYZ):
     def __init__(self, inverse = False):
         super().__init__(not inverse)
     
-    
 
+        
+class Altitude(Coroutine):
+    '''Altitude
+
+    A class to convert range measurements to distance to the sea bed
+    (altitude).
+
+    Parameters
+    ----------
+    mount_hdg : float (0.0)
+        angle at which the instrument is mounted, as offset for heading
+        angle (rad)
+    mount_pitch : float (0.0)
+        angle at which this instrument is mounted, as offset for the
+        pitch angle (rad)
+    mount roll : float (0.0)
+        angle at which the instrument is mounted, as offset for the roll
+        angle (rad)
+
+    The angles are given in radians.
+
+    Notes
+    -----
+    
+    For the glider, the mount angle for heading is 0, for pitch 11
+    degrees, and for the roll it depends on how the glider is
+    assembled. This offset angle can be found if
+    i) bottom track is available
+    ii) the sea bed can be assumed reasonably flat
+
+    Then, for the correct roll offset, the four ranges should collapse
+    onto one curve.
+
+    '''
+    PARAMS = dict(bottom_track = ['Range'])
+    CACHE = {}
+    
+    def __init__(self, mount_hdg=0, mount_pitch=0, mount_roll=0):
+        super().__init__()
+        self.Rxyz_fsu = RotationMatrix()(-mount_hdg, -mount_pitch, -mount_roll)
+        self.Rfsu_enu = RotationMatrix()
+        self.coro_fun = self.coro_transform_ensembles()
+        
+    @coroutine
+    def coro_transform_ensembles(self):
+        ''' coroutine  transforming ensembles.'''
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                self.transform_range_in_ensemble(ens)
+                self.send(ens)
+        self.close_coroutine()
+
+    def transform_range_in_ensemble(self, ens):
+        '''Transforms the bottom_track_range fields in each ensemble.
+
+        Parameters
+        ----------
+        ens : :class:`rdi_reader.Ensemble`
+            Ensemble dictionary
+
+        '''
+        beam_vectors = self.get_beam_vectors(ens)
+        hdg = -ens['variable_leader']['Heading']*np.pi/180
+        pitch = -ens['variable_leader']['Pitch']*np.pi/180
+        roll = -ens['variable_leader']['Roll']*np.pi/180.
+        R = self.Rfsu_enu(hdg, pitch, roll) @ self.Rxyz_fsu
+        x,y,z,_ = R @ beam_vectors
+        bt = ens['bottom_track']
+        for i, (_x, _y, _z) in enumerate(zip(x,y,z)):
+            bt['Range%d'%(i+1)] = -_z # We want positive ranges.
+        
+    def get_beam_vectors(self, ens):
+        '''Get the measured ranges as vectors
+        
+        Parameters
+        ----------
+        ens : :class:`rdi_reader.Ensemble`
+            Ensemble dictionary
+        
+        Returns
+        -------
+        np.array (4,4) 
+            the range measurements as vectors represented in the
+            device's coordinate system (xyz)
+        
+        Notes
+        -----
+        It seems that the range measurements are expressed as their projected values
+        onto the system's z coordinate. In order to obtain the correct ranges along
+        the acoustic beams, the scaling has to be reversed (by the division of 
+        cos(theta)).
+        '''
+        try:
+            vectors, n_beams = self.CACHE['vectors']
+            
+        except KeyError:
+            theta, beam_pattern, facing, n_beams = self.get_beam_configuration(ens)
+            c = int(beam_pattern=='Convex')*2-1
+            sn = c * np.sin(theta)
+            cs = np.cos(theta)
+            vectors = np.array([[sn,   0, -cs, 0],
+                                [ -sn,   0, -cs, 0],
+                                [  0,  -sn, -cs, 0],
+                                [  0, sn, -cs, 0]]).T
+            vectors /= np.cos(theta) # compensates for the mapping on the instruments z-axis
+            self.CACHE['vectors'] = vectors, n_beams
+        B = np.diag([ens['bottom_track']['Range%d'%(i+1)] for i in range(n_beams)])
+        return vectors @ B
+    
+            
+    def get_beam_configuration(self, ens):
+        ''' Gets the configuration of the beam settings.
+        
+        Parameters
+        ----------
+        ens : :class:`rdi_reader.Ensemble`
+            Ensemble dictionary
+        
+        Returns
+        -------
+        tuple of (float, str, str, int)
+            floatbeam angle theta (rad), 
+            beam_pattern (convex/concave), 
+            facing (up/down),
+            number of beams
+        '''
+        fixed_leader = ens['fixed_leader']
+        beam_angle, _ = fixed_leader['Beam_Angle'].split()
+        beam_pattern = fixed_leader['Beam_Pattern']
+        facing = fixed_leader['Xdcr_Facing']
+        n_beams = fixed_leader['N_Beams']
+        theta = float(beam_angle)*np.pi/180.
+        return theta, beam_pattern, facing, n_beams
