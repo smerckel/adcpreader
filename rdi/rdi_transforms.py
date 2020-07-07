@@ -357,7 +357,7 @@ class Altitude(Coroutine):
     
     def __init__(self, mount_hdg=0, mount_pitch=0, mount_roll=0):
         super().__init__()
-        self.Rxyz_fsu = RotationMatrix()(-mount_hdg, -mount_pitch, -mount_roll)
+        self.Rxyz_fsu = RotationMatrix()(mount_hdg, mount_pitch, mount_roll)
         self.Rfsu_enu = RotationMatrix()
         self.coro_fun = self.coro_transform_ensembles()
         
@@ -384,14 +384,14 @@ class Altitude(Coroutine):
 
         '''
         beam_vectors = self.get_beam_vectors(ens)
-        hdg = -ens['variable_leader']['Heading']*np.pi/180
-        pitch = -ens['variable_leader']['Pitch']*np.pi/180
-        roll = -ens['variable_leader']['Roll']*np.pi/180.
+        hdg = ens['variable_leader']['Heading']*np.pi/180
+        pitch = ens['variable_leader']['Pitch']*np.pi/180
+        roll = ens['variable_leader']['Roll']*np.pi/180.
         R = self.Rfsu_enu(hdg, pitch, roll) @ self.Rxyz_fsu
         x,y,z,_ = R @ beam_vectors
         bt = ens['bottom_track']
         for i, (_x, _y, _z) in enumerate(zip(x,y,z)):
-            bt['Range%d'%(i+1)] = -_z # We want positive ranges.
+            bt['Range%d'%(i+1)] = _z # We want positive ranges.
         
     def get_beam_vectors(self, ens):
         '''Get the measured ranges as vectors
@@ -422,14 +422,15 @@ class Altitude(Coroutine):
             c = int(beam_pattern=='Convex')*2-1
             sn = c * np.sin(theta)
             cs = np.cos(theta)
-            vectors = np.array([[sn,   0, -cs, 0],
-                                [ -sn,   0, -cs, 0],
-                                [  0,  -sn, -cs, 0],
-                                [  0, sn, -cs, 0]]).T
+            vectors = np.array([[sn,   0, cs, 0],
+                                [ -sn,   0, cs, 0],
+                                [  0,  -sn, cs, 0],
+                                [  0, sn, cs, 0]]).T
             vectors /= np.cos(theta) # compensates for the mapping on the instruments z-axis
             self.CACHE['vectors'] = vectors, n_beams
         B = np.diag([ens['bottom_track']['Range%d'%(i+1)] for i in range(n_beams)])
-        return vectors @ B
+        beam_vectors = vectors @ B
+        return beam_vectors
     
             
     def get_beam_configuration(self, ens):
