@@ -334,7 +334,11 @@ class NetCDFWriter(Writer):
                      BTVel1 = ('f4', 'onedim', 'm/s'),
                      BTVel2 = ('f4', 'onedim', 'm/s'),
                      BTVel3 = ('f4', 'onedim', 'm/s'),
-                     BTVel4 = ('f4', 'onedim', 'm/s'), 
+                     BTVel4 = ('f4', 'onedim', 'm/s'),
+                     Range1 = ('f4', 'onedim', 'm'),
+                     Range2 = ('f4', 'onedim', 'm'),
+                     Range3 = ('f4', 'onedim', 'm'),
+                     Range4 = ('f4', 'onedim', 'm')
                      )
     SECTIONS = 'fixed_leader variable_leader velocity echo bottom_track'.split()
                                     
@@ -416,7 +420,7 @@ class NetCDFWriter(Writer):
                 try:
                     fmt, dim, units = self.VARIABLES[v]
                 except KeyError:
-                    pass
+                    pass #print(f"Not configured to write {v}.")
                 else:
                     if dim == 'scalar':
                         variables[v] = self.dataset.createVariable(v, fmt)
