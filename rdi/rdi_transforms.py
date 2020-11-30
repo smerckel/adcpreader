@@ -57,23 +57,49 @@ class RotationMatrix(object):
     def __call__(self, heading, pitch, roll):
         return self.create_matrix(heading, pitch, roll)
 
-
-    
 class TransformMatrix(object):
+    def __init__(self, use_three_beam_solution=0):
+        self.three_beam_sol = use_three_beam_solution
+        
     def create_matrix(self, a, b, c, d):
-        M = np.array([[c*a, -c*a, 0, 0],
-                      [0  ,    0, -c*a, c*a],
-                      [b  ,    b,    b,   b],
-                      [d  ,    d,   -d,  -d]])
-        #M = np.array([[c*a, -c*a, 0, 0], # using b1, b2 b3
-        #             [c*a  ,   c*a, -2*c*a, 0],
-        #            [2* b  ,    2*b,    0,   0],
-        #           [0  ,   0,   0,  0]])
-        #M = np.array([[c*a, -c*a, 0, 0], # using b1, b2 b4
-        #              [-c*a  ,  - c*a, 0, 2*c*a],
-        #              [2* b  ,    2*b,    0,   0],
-        #              [0  ,   0,   0,  0]])
+        if self.three_beam_sol==0: # use all four beams:
+            M = np.array([[c*a, -c*a, 0, 0],
+                          [0  ,    0, -c*a, c*a],
+                          [b  ,    b,    b,   b],
+                          [d  ,    d,   -d,  -d]])
+        elif self.three_beam_sol==4: # use beams 1,2, 3 and leave out 4
+            M = np.array([[c*a, -c*a, 0, 0],
+                          [c*a  ,   c*a, -2*c*a, 0],
+                          [2* b  ,    2*b,    0,   0],
+                          [0  ,   0,   0,  0]])
+        elif self.three_beam_sol==3: # use beams 1,2, 4 and leave out 3
+            M = np.array([[c*a, -c*a, 0, 0], 
+                          [-c*a  ,  - c*a, 0, 2*c*a],
+                          [2* b  ,    2*b,    0,   0],
+                          [0  ,   0,   0,  0]])
+        elif self.three_beam_sol==5: # use beams 1, 2 and 3, and do proper projection
+            theta = np.pi/180*30
+            alpha = np.pi/180*15
+            a11 = np.sin(theta)
+            a12 = np.sin(alpha)*np.cos(theta)
+            a13 = np.cos(alpha)*np.cos(theta)
+            
+            a21 = -np.sin(theta)
+            a22 = np.sin(alpha)*np.cos(theta)
+            a23 = np.cos(alpha)*np.cos(theta)
 
+            a31 = 0
+            a32 = -np.sin(theta)*np.cos(alpha) + np.sin(alpha)*np.cos(theta)
+            a33 = np.sin(theta)*np.sin(alpha) + np.cos(alpha)*np.cos(theta)
+            
+            A = np.array([[a11, a12, a13],
+                          [a21, a22, a23],
+                          [a31, a32, a33]])
+            Ainv = np.linalg.inv(A)
+            M = np.zeros((4,4),float)
+            M[:3, :3] = Ainv
+        else:
+            raise NotImplementedError("Three beam solution matrix not implemented yet.")
         return M
     
     def __call__(self, a, b, c, d):
@@ -160,7 +186,7 @@ class Transform(Coroutine):
             params = dict([(k,v) for k, v in Transform.PARAMS.items() if k in ensemble_keys])
             self.CACHE['params'] = params
         return params
-    
+
     def transform_velocities_in_ensemble(self, ens):
         ''' Transforms the velocities in given ensemble. 
         '''
@@ -178,7 +204,19 @@ class Transform(Coroutine):
         params = self.get_params(ens)
         self.__transform_velocities_in_ensemble(ens, R, params)
         self.update_coordinate_frame_setting(ens)
+        self.post_modify_ensemble(ens)
 
+    def update_coordinate_frame_setting(self, ens):
+        ''' Writes the new coordinate frame setting and records the original setting. '''
+        if self.new_coordinate_system:
+            ens['fixed_leader']['OriginalCoordXfrm'] = ens['fixed_leader']['CoordXfrm']
+            ens['fixed_leader']['CoordXfrm'] = self.new_coordinate_system
+        else:
+            raise ValueError('new_coordinate_system is NOT set!')
+
+    def post_modify_ensemble(self, ens):
+        pass
+    
     def __check_coordinate_system(self, ens):
         if ens['fixed_leader']['CoordXfrm'] != self.old_coordinate_system:
             msg = '''Cannot apply the transformation as the transformation
@@ -214,13 +252,6 @@ system than the ensemble has.'''
                         for i in range(4):
                             ens[k]['%s%d'%(_v, i+1)] = np.ma.masked_array(xp[i], maskp[i])
                             
-    def update_coordinate_frame_setting(self, ens):
-        ''' Writes the new coordinate frame setting and records the original setting. '''
-        if self.new_coordinate_system:
-            ens['fixed_leader']['OriginalCoordXfrm'] = ens['fixed_leader']['CoordXfrm']
-            ens['fixed_leader']['CoordXfrm'] = self.new_coordinate_system
-        else:
-            raise ValueError('new_coordinate_system is NOT set!')
         
             
 class TransformSFU_ENU(Transform):
@@ -260,20 +291,26 @@ class TransformRotation(Transform):
         return self.R
 
 class TransformBEAM_XYZ(Transform):
-    def __init__(self,inverse = False):
+    def __init__(self,inverse = False, use_three_beam_solution=0):
         super().__init__(inverse)
         self.set_coordinate_systems('Beam', 'Instrument', inverse)
+        self.use_three_beam_solution = use_three_beam_solution
         
     def create_transformation_matrix(self, attitude, beamconfig):
         try:
             return self.R
         except AttributeError:
-            R = TransformMatrix()
+            R = TransformMatrix(self.use_three_beam_solution)
             self.R = R(beamconfig.a, beamconfig.b, beamconfig.c, beamconfig.d)
             if self.inverse:
                 self.R = np.linalg.inv(self.R) # Transpose is not okay for non-rotational matrices.
             return self.R
         
+    #overloaded method.    
+    def post_modify_ensemble(self, ens):
+        if self.use_three_beam_solution==5:
+            ens['fixed_leader']['DepthCellSize']*=np.cos(15*np.pi/180)
+            
 class TransformXYZ_SFU(Transform):
     def __init__(self, hdg, pitch, roll, inverse = False):
         super().__init__(inverse)
