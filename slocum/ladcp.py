@@ -1,4 +1,5 @@
 from collections import namedtuple
+import logging
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -7,10 +8,12 @@ from scipy.integrate import cumtrapz
 from profiles import iterprofiles
 import latlonUTM
 
+logger = logging.getLogger(name=__name__)
 
 # Definition of some named tuples
 Surface_Data = namedtuple('surface_data','t x y ballast'.split())
 Surface_Velocity = namedtuple('surface_velocity', 't u v'.split())
+Velocity_Data = namedtuple('velocity_data', 't z u v d'.split())
 
 class WaterVelocities(object):
     ''' Class to compute water velocities from glider data using
@@ -23,7 +26,7 @@ class WaterVelocities(object):
         data : dictionary
                data dictionary passed to a ProfileSplitter instance. It therefore
                must contain the keys "time" and "pressure", as well as glider flight
-               velocities "gf_u" and "gf_v" (eastward and norhtward velocities) and
+               velocities "gf_u" and "gf_v" (eastward and northward velocities) and
                "gf_U", the incident water velocity.
                Other parameters may be present, but are not used.
 
@@ -36,8 +39,9 @@ class WaterVelocities(object):
         '''
         self.ps = iterprofiles.ProfileSplitter(data)
         self.ps.split_profiles()
-        self.surface_data = self.convert_gps_data(surface_data)
+        self.surface_data = self._convert_gps_data(surface_data)
         self.magnetic_variation = magnetic_variation
+        self.__velocities_integrated = False
         
     def integrate_glider_velocities(self):
         ''' Integrate the glider flight model velocities
@@ -49,53 +53,13 @@ class WaterVelocities(object):
         u = self.ps.data['gf_u']
         v = self.ps.data['gf_v']
         if not self.magnetic_variation is None:
-            u, v = self.correct_velocity_vectors_for_magnetic_variation(u, v)
+            u, v = self._correct_velocity_vectors_for_magnetic_variation(u, v)
         x = cumtrapz(u, tm, initial=0)
         y = cumtrapz(v, tm, initial=0)
         self.ps.data['x'] = x
         self.ps.data['y'] = y
+        self.__velocities_integrated = True
         
-    def correct_velocity_vectors_for_magnetic_variation(self, u, v):
-        ''' Correct any velocity readins from the model for magnetic variation
-        
-        Parameters
-        ----------
-        u, v : arrays of float
-               eastward and northward velocities, respectively
-
-        Returns
-        -------
-        Parameters
-        ----------
-        u, v : arrays of float
-               corrected eastward and northward velocities, respectively
-        '''
-        alpha = np.pi*self.magnetic_variation/180.
-        R = np.array([[np.cos(alpha), np.sin(alpha)],
-                      [-np.sin(alpha), np.cos(alpha)]])
-        uv = np.vstack((u, v))
-        u, v = R @ uv
-        return u, v
-        
-    def convert_gps_data(self, surface_data):
-        ''' Convert lat/lon to m easting and northing
-
-        Parameters
-        ----------
-        surface_data : Surface_Data named tuple
-
-        Converts latitude/longitude arrays into x and y coordinates, with reference to the 
-        UTM tile of the first latitude/longitude pair.
-
-        Returns
-        -------
-        surface_data : Surface_Data named tuple
-                       the fields .x and .y now contain the coordinates in m
-        '''
-        x_gps, y_gps = latlonUTM.UTM(surface_data.x, surface_data.y)
-        surface_data = Surface_Data(surface_data.t, x_gps, y_gps, surface_data.ballast)
-        return surface_data
-    
     def compute_surface_velocities(self, ballast_min = 200, max_surface_time=20*60, min_gps_fixes=10):
         ''' Compute surface velocity from glider drift
         
@@ -126,10 +90,10 @@ class WaterVelocities(object):
         tm = self.ps.data['time']
         sd = self.surface_data
         surface_intervals = []
-        
-        for pleft, pright in zip(self.ps[:-1], self.ps[1:]):
-            t0 = tm[pleft.i_up[0]]  # time stamp of first 'left' gps fixes
-            t1 = tm[pright.i_down[-1]] # time stamp of last 'right' gps fixes
+        n_segments = len(self.ps) - 1
+        for cnt, (pleft, pright) in enumerate(zip(self.ps[:-1], self.ps[1:])):
+            t0 = tm[pleft.i_up[-1]] # last timestamp of upcast
+            t1 = tm[pright.i_down[0]] # first timestamp of downcast
             # compress all the data within these times and applying the buoyancy constraint:
             tmp = np.compress(np.logical_and(np.logical_and(sd.t >= t0,
                                                             sd.t <= t1),
@@ -138,6 +102,10 @@ class WaterVelocities(object):
             # only add to surface intervals if the other two constraints are met:
             if tmp.shape[1]>min_gps_fixes and tmp[0].ptp()<max_surface_time:
                 surface_intervals.append(Surface_Data(*tmp))
+            logger.info(f"Processing segment {cnt} of {n_segments}")
+            logger.info(f"    surface time (min): {(t1-t0)/60}")
+            logger.info(f"    gps available: {np.any(np.logical_and(sd.t >= t0,sd.t <= t1))}")
+            
         self.surface_intervals = surface_intervals # the dead reckoning method needs this too
         # compute the drifting velocity
         us = []
@@ -171,8 +139,12 @@ class WaterVelocities(object):
             v     : array of floats
                  norhtward barotropic velocity
         '''
-        
-        s0 = self.surface_intervals[:-1] # is computed in compute_surface_velocities()
+        if not self.__velocities_integrated:
+            self.integrate_glider_velocities()
+        try:
+            s0 = self.surface_intervals[:-1] # is computed in compute_surface_velocities()
+        except AttributeError:
+            raise ValueError("The method compute_surface_velocities() should be called first!")
         s1 = self.surface_intervals[1:]
         ub = []
         vb = []
@@ -182,7 +154,7 @@ class WaterVelocities(object):
                 continue
             t_transect = 0.5 * (_s0.t.max() + _s1.t.min())
             tb.append(t_transect)
-            _ub, _vb = self.deadreckon_transect(_s0, _s1)
+            _ub, _vb = self._deadreckon_transect(_s0, _s1)
             ub.append(_ub)
             vb.append(_vb)
         tb = np.array(tb)
@@ -190,28 +162,7 @@ class WaterVelocities(object):
         vb = np.array(vb)
         return dict(time=tb, u=ub, v=vb)
 
-    def extrapolate(self, t, s):
-        ''' extrapolate surface position 
-        Parameters
-        ----------
-        t : time to extrapolate position to
-        s : surface data named tuple
-        
-        Returns
-        -------
-        x,y : floats
-              extrapolated position
-        '''
-        x = self.__extrapolate(t, s.t, s.x)
-        y = self.__extrapolate(t, s.t, s.y)
-        return x, y
-    
-    def __extrapolate(self, T, t, x):
-        a,b = np.polyfit(t, x, 1)
-        X = a * T + b
-        return X
-        
-    def deadreckon_transect(self, s0, s1):
+    def _deadreckon_transect(self, s0, s1):
         ''' compute the averaged water velocity for a transect
         
         Parameters
@@ -237,8 +188,8 @@ class WaterVelocities(object):
         t_dive = t[idx[0]]
         t_surface = t[idx[-1]]
         # guess where the glider really dived and surfaced:
-        x_dive, y_dive = self.extrapolate(t_dive, s0)
-        x_surface, y_surface = self.extrapolate(t_surface, s1)
+        x_dive, y_dive = self._extrapolate(t_dive, s0)
+        x_surface, y_surface = self._extrapolate(t_surface, s1)
         # match similation with gps derived positions, so that dives correspond:
         gf_x_dive = np.interp(t_dive, t, x)
         gf_y_dive = np.interp(t_dive, t, y)
@@ -254,6 +205,69 @@ class WaterVelocities(object):
         ub = sx/dt
         vb = sy/dt
         return ub, vb
+
+    def _correct_velocity_vectors_for_magnetic_variation(self, u, v):
+        ''' Correct any velocity readins from the model for magnetic variation
+        
+        Parameters
+        ----------
+        u, v : arrays of float
+               eastward and northward velocities, respectively
+
+        Returns
+        -------
+        Parameters
+        ----------
+        u, v : arrays of float
+               corrected eastward and northward velocities, respectively
+        '''
+        # Rotates [u, v]T over an angle alpha. u and v are measured with respect to magnetic
+        # north, but should be expressed with respect to true north.
+        alpha = -np.pi*self.magnetic_variation/180.
+        Up = (u + v *1j) * np.exp(alpha*1j)
+        return Up.real, Up.imag
+        
+    def _convert_gps_data(self, surface_data):
+        ''' Convert lat/lon to m easting and northing
+
+        Parameters
+        ----------
+        surface_data : Surface_Data named tuple
+
+        Converts latitude/longitude arrays into x and y coordinates, with reference to the 
+        UTM tile of the first latitude/longitude pair.
+
+        Returns
+        -------
+        surface_data : Surface_Data named tuple
+                       the fields .x and .y now contain the coordinates in m
+        '''
+        x_gps, y_gps = latlonUTM.UTM(surface_data.x, surface_data.y)
+        surface_data = Surface_Data(surface_data.t, x_gps, y_gps, surface_data.ballast)
+        return surface_data
+    
+
+    def _extrapolate(self, t, s):
+        ''' extrapolate surface position 
+        Parameters
+        ----------
+        t : time to extrapolate position to
+        s : surface data named tuple
+        
+        Returns
+        -------
+        x,y : floats
+              extrapolated position
+        '''
+        x = self.__extrapolate(t, s.t, s.x)
+        y = self.__extrapolate(t, s.t, s.y)
+        return x, y
+    
+    def __extrapolate(self, T, t, x):
+        a,b = np.polyfit(t, x, 1)
+        X = a * T + b
+        return X
+        
 
 
 class LoweredADCP(object):
@@ -272,30 +286,22 @@ class LoweredADCP(object):
                              use_glider_flight = True,
                              use_barotropic_velocity_constraint = True,
                              use_surface_velocity_constraint = True)
-
-    def initialise(self, zi_min, zi_max, dz, dvl_z, ratio_limit=1.2):
+        self.grid_settings(zi_min=5, zi_max=40, dz=1)
+        self.ratio_limit = 1.2
+        
+    def initialise_grid(self, r):
         ''' Initialises the method
 
         Parameters
         ----------
-        zi_min : float
-             min water depth 
-        zi_max : float
-             max water depth
-        dz : float
-            vertical resolution 
-        dvl_z : array of floats
+        r : array of floats
             vector of acoustic bin distances 
         '''
-        self.dz = dz
-        self.zi_min = zi_min 
-        self.zi_max = zi_max
-        self.zi = np.arange(zi_min, zi_max, dz, float)
+        self.zi = np.arange(self.zi_min, self.zi_max, self.dz, float)
         # on interpolating outside the range, return index 0 for z<zmin, and N-1 for z>zi
         self.index_fun = interp1d(self.zi, np.arange(len(self.zi)),
                                   bounds_error=False, fill_value=(0, self.zi.shape[0]-1))
-        self.dvl_z = dvl_z
-        self.ratio_limit = ratio_limit
+        self.dvl_r = r
         
     def method_settings(self, **kwds):
         ''' Specify the information used in trying to estimate the current profiles.
@@ -312,13 +318,35 @@ class LoweredADCP(object):
             switch to use surface water velocities
         '''
         valid_kwds = 'use_bottom_track use_glider_flight use_barotropic_velocity_constraint use_surface_velocity_constraint'.split()
+        return self._process_keywords(valid_kwds, **kwds)
+    
+    def grid_settings(self, **kwds):
+        ''' Specify the settings for the output grid
+
+        Keywords can be any of:
+
+        zi_min : float
+             min water depth 
+        zi_max : float
+             max water depth
+        dz : float
+            vertical resolution 
+        '''
+
+        valid_kwds = 'zi_min zi_max dz'.split()
+        return self._process_keywords(valid_kwds, **kwds)
+
+    def _process_keywords(self, valid_kwds, **kwds):
+        unused_keywords = {}
         for k, v in kwds.items():
             if k in valid_kwds:
                 self.__dict__[k] = v
             else:
-                raise ValueError("Unexpected method setting (%s)."%(k))
-        
-    def compute_velocity_profile(self, U, dvl_bt_u, dvl_gf_u, dvl_gf_z,
+                unused_keywords[k] = v
+        return unused_keywords
+
+    
+    def compute_velocity_profile(self, U, dvl_bt_u, dvl_gf_z, dvl_gf_u,
                                  u_barotropic=0., u_surface=0.):
         '''
         Computes the velocity profile
@@ -352,6 +380,7 @@ class LoweredADCP(object):
         G, d = self.compute_G_and_d(U, dvl_bt_u, dvl_gf_z, dvl_gf_u,
                                     u_barotropic = u_barotropic, u_surface=u_surface)
         self.G = G # diagnostic
+        self.d = d
         #self.U = U # diagnostic
         G, non_zero_columns = self.remove_zero_columns(G)
         self.Gp = G
@@ -363,7 +392,7 @@ class LoweredADCP(object):
             # all U are zero, no system matrix
             uw = np.ma.masked_all(nz)
             ug = np.ma.masked_all(0)
-            print("Failed")
+            logger.warning("Failed")
             return ug, uw
 
         # solve the system
@@ -372,7 +401,7 @@ class LoweredADCP(object):
         except:
             uw = np.ma.masked_all(nz)
             ug = np.ma.masked_all(0)
-            print("Failed inversion")
+            logger.warning("Failed inversion")
             return ug, uw
 
         m = np.ma.masked_all(N+nz, float)
@@ -381,8 +410,11 @@ class LoweredADCP(object):
         uw = m[N:]
         return ug, uw
     
-    def compute_depth_referenced_velocity_matrix(self, dvl_u, dvl_gf_z, waterdepth=None):
+    def compute_depth_referenced_velocity_matrix(self, dvl_u, dvl_gf_z, waterdepth=None, bottom_clearance=1):
         ''' Compute depth referenced velocity matrix
+
+        The matrix with velocities recorded by the DVL are all relative to the glider's depth. This
+        method constructs a velocity matrix with the first dimension corresponding to the depth a
 
         Parameters
         ----------
@@ -395,6 +427,9 @@ class LoweredADCP(object):
         waterdepth: float or None
             Estimate of the waterdepth
 
+        bottom_clearance : float
+            Height above the bed where velocity readings should be discarded.
+
         Returns
         -------
         U: NxK array of floats
@@ -406,16 +441,16 @@ class LoweredADCP(object):
         U = np.nan * np.zeros((dvl_gf_z.shape[0], self.zi.shape[0]), float)
         for i, _z in enumerate(dvl_gf_z):
             try:
-                _u, _r = np.compress(~dvl_u[i].mask, (dvl_u[i].data, self.dvl_z), axis=1)
+                _u, _r = np.compress(~dvl_u[i].mask, (dvl_u[i].data, self.dvl_r), axis=1)
             except ValueError:
                 # assume that dvl_u[i].mask is NOT an array:
                 if dvl_u[i].mask: # all masked, don't use these data
                     continue
                 else:
                     _u = dvl_u[i].data # all fine, use them all
-                    _r = self.dvl_z
+                    _r = self.dvl_r
             if np.isfinite(waterdepth):
-                _u, _r = np.compress(_r+_z < waterdepth, (_u, _r), axis=1)
+                _u, _r = np.compress(_r+_z < waterdepth-bottom_clearance, (_u, _r), axis=1)
             try:
                 U[i,:] = np.interp(self.zi, _r+_z, _u, left=np.nan, right=np.nan)
             except ValueError:
@@ -423,9 +458,8 @@ class LoweredADCP(object):
         U = np.ma.masked_where(np.isnan(U), U)
         return U
     
-    def compute_waterdepth(self, dvl_bt_waterdepth, dvl_gf_z):
-        finite_readings = dvl_bt_waterdepth.compressed()
-        valid_readings = finite_readings.compress(finite_readings>dvl_gf_z.max()-1)
+    def compute_waterdepth(self, altitude, z):
+        valid_readings = (altitude + z).compressed()
         if valid_readings.shape[0]:
             waterdepth = np.median(valid_readings)
         else:
@@ -454,7 +488,8 @@ class LoweredADCP(object):
         for i, u in enumerate(U):
             if np.all(u==0):
                 continue
-            idx = np.where(np.isfinite(u))[0]
+            #idx = np.where(np.isfinite(u))[0]
+            idx = np.where(~u.mask)[0] # perhaps exclude measurements that are *exactly* zero?
             # in this ping we have len(idx) measurements. So G get this number of lines.
             for j in idx:
                 g_left = np.zeros(N, float)
@@ -483,13 +518,14 @@ class LoweredADCP(object):
                 g_right_filled[k]=1 # to keep track zero columns later.
                 G.append(np.hstack((g_left, g_right)))
                 d.append(dvl_gf_u[i])
-
-            if self.use_surface_velocity_constraint and np.isfinite(u_surface) and dvl_gf_z[i]<1:
-                g_left = np.zeros(N, float)
-                g_right = np.zeros(nz, float)
-                g_left[i] = 1
-                G.append(np.hstack((g_left, g_right)))
-                d.append(u_surface)
+                
+            # I think the code below should not be here. Only one surface measurement should be used?    
+            #if self.use_surface_velocity_constraint and np.isfinite(u_surface) and dvl_gf_z[i]<1:
+            #    g_left = np.zeros(N, float)
+            #    g_right = np.zeros(nz, float)
+            #    g_left[i] = 1
+            #    G.append(np.hstack((g_left, g_right)))
+            #    d.append(u_surface)
 
                 
         # adding surface velocity
