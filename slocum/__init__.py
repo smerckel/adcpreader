@@ -1,4 +1,4 @@
-__all__ = ['pitch_correction', 'ladcp']
+__all__ = ['dvl_processing', 'pitch_correction', 'ladcp']
 
 
-from . import pitch_correction, ladcp
+from . import dvl_processing, ladcp
