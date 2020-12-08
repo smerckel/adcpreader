@@ -35,10 +35,11 @@ PARAMETERS['variable_leader']+=['Timestamp']
 PARAMETERS['fixed_leader']+=['OriginalCoordXfrm']
 
 # Default parameters for writing.
-DEFAULT_SECTIONS = "velocity correlation percent_good variable_leader fixed_leader".split()
+DEFAULT_SECTIONS = "velocity correlation echo percent_good variable_leader fixed_leader".split()
 DEFAULT_PARAMETERS = dict(velocity = PARAMETERS['velocity'],
                           correlation = PARAMETERS['correlation'],
                           percent_good = PARAMETERS['percent_good'],
+                          echo = PARAMETERS['echo'],
                           variable_leader = 'Timestamp Ensnum Soundspeed XdcrDepth Heading Pitch Roll Salin Temp'.split(),
                           bottom_track = 'BTVel1 BTVel2 BTVel3 BTVel4 PG1 PG2 PG3 PG4 Range1 Range2 Range3 Range4'.split(),  
                           fixed_leader = 'Sys_Freq Xdcr_Facing N_Beams N_Cells N_PingsPerEns DepthCellSize Blank CoordXfrm WaterMode FirstBin SystemSerialNumber OriginalCoordXfrm'.split(),
@@ -54,8 +55,10 @@ class Writer(Coroutine):
     def __init__(self, has_bottom_track=True): # some sections that are not necessisarily present
         super().__init__()
         self.writeable_sections = list(DEFAULT_SECTIONS)
-        if has_bottom_track:
+        if has_bottom_track and (not "bottom_track" in self.writeable_sections):
             self.writeable_sections.append("bottom_track")
+        elif not has_bottom_track and ("bottom_track" in self.writeable_sections):
+            self.writeable_sections.remove("bottom_track")
         self.is_context_manager = False
         self.__set_parameter_list()
         
@@ -85,7 +88,7 @@ class Writer(Coroutine):
         except AttributeError:
             pass    
         
-    def set_custom_parameter(self, section, *name, dtype=None):
+    def add_custom_parameter(self, section, *name, dtype=None):
         ''' Mark a non-standard parameter as one that should be written to file.
 
         Parameters
