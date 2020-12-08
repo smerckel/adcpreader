@@ -49,6 +49,72 @@ def rad(x):
     return x*np.pi/180.
 
 
+class AddFixedLeaderParameter(Coroutine):
+    def __init__(self, parameter, value):
+        super().__init__()
+        self.coro_fun = self.coro_add(parameter, value)
+        if parameter not in PARAMETERS['fixed_leader']:
+            PARAMETERS['fixed_leader'].append(parameter)
+            
+    @coroutine
+    def coro_add(self, parameter, value):
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                ens['fixed_leader'][parameter] = value
+                self.send(ens)
+        self.close_coroutine()
+    
+
+class Info(Coroutine):
+    ''' Coroutine showing header information of first ensemble 
+
+    Including this coroutine in the pipeline displays the information contained
+    in the fixed_leader of the first ensemble, and alters nothing to the ensemble
+    itself.
+
+    Parameters
+    ----------
+    header : str ('')
+         header to be displayed before printing leader information.
+    
+    '''
+    def __init__(self, header = ''):
+        super().__init__()
+        self.coro_fun = self.coro_show_info()
+        self.header = header
+        
+    @coroutine
+    def coro_show_info(self):
+        first_time=True
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                if first_time:
+                    self.show_info(ens)
+                    first_time = False
+                self.send(ens)
+        self.close_coroutine()
+
+    def show_info(self, ens):
+        print(f"ADCP configuration {self.header}")
+        print("-"*80)
+        for p in PARAMETERS['fixed_leader']:
+            try:
+                print(f"{p:20s} : {ens['fixed_leader'][p]}")
+            except KeyError:
+                pass
+        print("\n\n")
+    
+
+
+
 class Writer(Coroutine):
     YEAR = 2000
     
@@ -61,7 +127,7 @@ class Writer(Coroutine):
             self.writeable_sections.remove("bottom_track")
         self.is_context_manager = False
         self.__set_parameter_list()
-        
+
     @coroutine
     def coro_write_ensembles(self,fd):
         config = None
@@ -272,7 +338,7 @@ class Writer(Coroutine):
             if s in DEFAULT_PARAMETERS:
                 for k in DEFAULT_PARAMETERS[s]:
                     self.parameters['scalar'].append((s,k))
-        for s in ['velocity', 'correlation', 'percent_good']:
+        for s in ['velocity', 'correlation', 'echo', 'percent_good']:
             if s in DEFAULT_PARAMETERS:
                 for k in DEFAULT_PARAMETERS[s]:
                     self.parameters['vector'].append((s,k))
@@ -320,7 +386,7 @@ class NetCDFWriter(Writer):
                      Soundspeed = ('f4', 'onedim', 'm/s'), 
                      Salin = ('f4', 'onedim', 'SA'), 
                      Temp = ('f4', 'onedim', 'Celcius'), 
-                     Press = ('f4', 'onedim', 'dbar?'), 
+                     Press = ('f4', 'onedim', 'bar'), 
                      Ensnum = ('i8', 'onedim', '-'), 
                      Time = ('f8', 'onedim', 's'),
                      #
@@ -392,7 +458,28 @@ class NetCDFWriter(Writer):
         if not self.is_context_manager:
             # if we leave the coroutine, only close the file if we are not in a context manager.
             self.close()
-        
+
+    def add_custom_parameter(self, name, fmt='f4', dtype='scalar', unit=''):
+        ''' Add parameter to the list of parameters to be written to file.
+
+        Overloaded method.
+
+        Parameters
+        ----------
+        name : str
+            name of parameter
+        fmt : str {'f4', 'f8', 'u1'}, default 'f4'
+            numeric format of parameter, (float, double, int)
+        dtype : str {'scalar', 'onedim', 'twodim'}, default 'scalar'
+            data type
+        unit : str default ''
+            unit of parameter
+        '''
+        NetCDFWriter.VARIABLES[name] = (fmt, dtype, unit)
+            
+
+                                
+                                
     # "private" methods
     def create_dimensions(self, n_bins):
         time = self.dataset.createDimension('time', None)
@@ -414,7 +501,8 @@ class NetCDFWriter(Writer):
         variables['z'].units = 'm'
         z = np.arange(ens['fixed_leader']['N_Cells'])*ens['fixed_leader']['DepthCellSize']
         z += ens['fixed_leader']['FirstBin']
-        variables['z'][...] = z
+        direction = int(ens['fixed_leader']['Xdcr_Facing']=='Up') * 2 - 1
+        variables['z'][...] = z * direction
 
         for s, grp in ens.items():
             if s not in self.SECTIONS:
@@ -671,11 +759,15 @@ class DataStructure(Writer):
         return self.data.keys()
     
     def write_configuration(self, config, fd):
-        self.config['N_Cells'] = config['N_Cells']
-        self.config['DepthCellSize'] = config['DepthCellSize']
-        self.config['FirstBin'] = config['FirstBin']
+        # these we don't want...
+        ignores = 'CPU_ver CPU_rev Sensor_Cfg Xdcr_Head Real_Data WaterMode Code_Repts MinPG RawCoordXrfm EA EB Sensors Sensors_Avail XmtLength WL_Start WL_End FalseTargetThreshold LagDistance CPUBoardSerial Bandwidth XmtPower'.split()
+        for p in PARAMETERS['fixed_leader']:
+            if p in ignores:
+                continue
+            self.config[p] = config[p]
         self.config['r'] = config['FirstBin'] + np.arange(config['N_Cells'])*config['DepthCellSize']
-    
+
+        
     def write_header(self, config, fd):
         pass
 
