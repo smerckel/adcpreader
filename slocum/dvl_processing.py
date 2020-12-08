@@ -145,6 +145,7 @@ class DVLProcessor(object):
         water_velocities = ladcp.WaterVelocities(gf_data, surface_data, self.magnetic_variation)
         sv = water_velocities.compute_surface_velocities()
         bv = water_velocities.compute_barotropic_velocities()
+        self._water_velocities = water_velocities # diagnostic reason only
         return sv, bv
 
     def compute_velocity_matrix(self):
@@ -230,8 +231,8 @@ class DVLProcessor(object):
         u = self.gld_flght_dataset.variables['u'][:].data
         hdg = self.gld_flght_dataset.variables['heading'][:].data
         gf_U = self.gld_flght_dataset.variables['U'][:].data
-        gf_u = np.cos(np.pi/2 - hdg*np.pi/180)
-        gf_v = np.sin(np.pi/2 - hdg*np.pi/180)
+        gf_u = u * np.cos(np.pi/2 - hdg)
+        gf_v = u * np.sin(np.pi/2 - hdg)
         gf_data = dict(time=t, pressure=pressure, pressure_raw=pressure_raw,
                     gf_u=gf_u, gf_v=gf_v, gf_U=gf_U)
         return gf_data
