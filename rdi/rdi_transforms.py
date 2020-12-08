@@ -38,7 +38,11 @@ from rdi.coroutine import coroutine, Coroutine
 Attitude = namedtuple('Attitude', 'hdg pitch roll')
 Beamconfig = namedtuple('Beamconfig', 'a b c d facing')
 
-
+VELOCITY_FIELDS = dict(Beam=[f'To Beam {i+1}' for i in range(4)],
+                       Instrument=['To X', 'To Y', 'To Z', 'To error'],
+                       Ship=['To Starboard', 'To Bow', 'To Mast', 'To error'],
+                       Earth=['To East', 'To North', 'To Up', 'To error'])
+                       
 class RotationMatrix(object):
     ''' A rotation matrix class as defined in the RDI manual '''
     def create_matrix(self, heading, pitch, roll):
@@ -211,6 +215,8 @@ class Transform(Coroutine):
         if self.new_coordinate_system:
             ens['fixed_leader']['OriginalCoordXfrm'] = ens['fixed_leader']['CoordXfrm']
             ens['fixed_leader']['CoordXfrm'] = self.new_coordinate_system
+            for i, v in enumerate(VELOCITY_FIELDS[self.new_coordinate_system]):
+                ens['fixed_leader'][f"Vel_field{i+1}"] = v
         else:
             raise ValueError('new_coordinate_system is NOT set!')
 
