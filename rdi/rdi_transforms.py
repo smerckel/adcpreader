@@ -198,7 +198,6 @@ class Transform(Coroutine):
         hdg = ens['variable_leader']['Heading']*np.pi/180.
         pitch = ens['variable_leader']['Pitch']*np.pi/180.
         roll = ens['variable_leader']['Roll']*np.pi/180.
-
         attitude = Attitude(hdg, pitch, roll)
 
         a,b,c,d, facing = self.get_beam_configuration(ens)
@@ -279,10 +278,13 @@ class TransformXYZ_ENU(Transform):
 
     def create_transformation_matrix(self, attitude, beamconfig):
         R = RotationMatrix()
+        # if upward looking, rotate 180 over S-axis 
+        roll_adjustment = np.pi * int(beamconfig.facing == 'Up')
+
         if self.inverse:
-            return R(attitude.hdg, attitude.pitch, attitude.roll).T
+            return R(attitude.hdg, attitude.pitch, attitude.roll+roll_adjustment).T
         else:
-            return R(attitude.hdg, attitude.pitch, attitude.roll)
+            return R(attitude.hdg, attitude.pitch, attitude.roll+roll_adjustment)
 
 
 class TransformRotation(Transform):
