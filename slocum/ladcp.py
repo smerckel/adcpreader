@@ -14,6 +14,7 @@ logger = logging.getLogger(name=__name__)
 Surface_Data = namedtuple('surface_data','t x y ballast'.split())
 Surface_Velocity = namedtuple('surface_velocity', 't u v'.split())
 Velocity_Data = namedtuple('velocity_data', 't z u v d'.split())
+Glider_Velocity_Data = namedtuple('glider_velocity_data', 't u v'.split())
 
 class WaterVelocities(object):
     ''' Class to compute water velocities from glider data using
