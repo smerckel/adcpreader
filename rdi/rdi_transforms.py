@@ -42,7 +42,11 @@ VELOCITY_FIELDS = dict(Beam=[f'To Beam {i+1}' for i in range(4)],
                        Instrument=['To X', 'To Y', 'To Z', 'To error'],
                        Ship=['To Starboard', 'To Bow', 'To Mast', 'To error'],
                        Earth=['To East', 'To North', 'To Up', 'To error'])
-                       
+FOUR_BEAM_SOLUTION=0
+THREE_BEAM_SOLUTION_DISCARD_FOURTH=4
+THREE_BEAM_SOLUTION_DISCARD_THIRD=3
+THREE_BEAM_SOLUTION_CORRECT_PROJECTION=5
+
 class RotationMatrix(object):
     ''' A rotation matrix class as defined in the RDI manual '''
     def create_matrix(self, heading, pitch, roll):
@@ -66,22 +70,22 @@ class TransformMatrix(object):
         self.three_beam_sol = use_three_beam_solution
         
     def create_matrix(self, a, b, c, d):
-        if self.three_beam_sol==0: # use all four beams:
+        if self.three_beam_sol==FOUR_BEAM_SOLUTION: # use all four beams:
             M = np.array([[c*a, -c*a, 0, 0],
                           [0  ,    0, -c*a, c*a],
                           [b  ,    b,    b,   b],
                           [d  ,    d,   -d,  -d]])
-        elif self.three_beam_sol==4: # use beams 1,2, 3 and leave out 4
+        elif self.three_beam_sol==THREE_BEAM_SOLUTION_DISCARD_FOURTH: # use beams 1,2, 3 and leave out 4
             M = np.array([[c*a, -c*a, 0, 0],
                           [c*a  ,   c*a, -2*c*a, 0],
                           [2* b  ,    2*b,    0,   0],
                           [0  ,   0,   0,  0]])
-        elif self.three_beam_sol==3: # use beams 1,2, 4 and leave out 3
+        elif self.three_beam_sol==THREE_BEAM_SOLUTION_DISCARD_THIRD: # use beams 1,2, 4 and leave out 3
             M = np.array([[c*a, -c*a, 0, 0], 
                           [-c*a  ,  - c*a, 0, 2*c*a],
                           [2* b  ,    2*b,    0,   0],
                           [0  ,   0,   0,  0]])
-        elif self.three_beam_sol==5: # use beams 1, 2 and 3, and do proper projection
+        elif self.three_beam_sol==THREE_BEAM_SOLUTION_CORRECT_PROJECTION: # use beams 1, 2 and 3, and do proper projection
             theta = np.pi/180*30
             alpha = np.pi/180*15
             a11 = np.sin(theta)
