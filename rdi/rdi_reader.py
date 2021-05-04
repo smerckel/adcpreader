@@ -130,19 +130,6 @@ def make_pipeline(*processes):
     return end_process
         
         
-def add_timestamp(ensembles, baseyear=2000):
-    ''' Generator function to add unix time to ensemble. 
-    A new variable 'timestamp' is created for the section 'variable_leader'.
-    '''
-    Q #function Obselete?
-    for ens in ensembles:
-        try: 
-            ens['variable_leader']['Timestamp'] # if it exists, don't overwrite.
-        except KeyError:
-            tm = get_ensemble_time(ens, baseyear)
-            ens['variable_leader']['Timestamp'] = tm
-        yield ens
-        
 class Ensemble(object):
     '''
     class to hold and decode a binary data block containing a single ping.
