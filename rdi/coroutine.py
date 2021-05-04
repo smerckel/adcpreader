@@ -15,6 +15,19 @@ class Coroutine(object):
     def __init__(self):
         self._targets=[]
 
+    def __or__(self, rhs):
+        self.send_to(rhs)
+        try:
+            rhs.coro_fun = self.coro_fun
+        except AttributeError:
+            pass
+        try:
+            rhs.process = self.process
+        except AttributeError:
+            pass
+        return rhs
+
+        
     def send_to(self, *targets):
         for target in targets:
             self._targets.append(target.coro_fun)
