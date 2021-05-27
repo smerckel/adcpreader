@@ -131,7 +131,7 @@ class ValueLimit(QualityControl):
             self.rules['regex'].append( (section, regex, operator, value, boolean) )
 
         
-    def mask_parameter(self, section, parameter, operator, value, *parameters, alt_section=None):
+    def mask_parameter(self, section, parameter, operator, value, dependent_parameters=dict()):
         ''' Set a condition to discard readings.
 
         Parameters
@@ -144,21 +144,29 @@ class ValueLimit(QualityControl):
             comparison operator. Example: ">" or "||>"
         value : float
             the value to compare with.
+        dependent_parameters : dict
+            If not empty, the mask condition is also applied to the "dependent parameters".
+        
+        Example
+        -------
+        mask_parameter("velocity", "Velocity1", "||>", 0.1, 
+                        dependent_parameters=dict(bottom_track=["BTVel1", "BTVel2"])) 
+        
         '''
         if section == 'variable_leader':
             self.rules['vl_default'].append((section, parameter, operator, value,
-                                             alt_section, *parameters))
+                                             dependent_parameters))
         else:
             self.rules['default'].append((section, parameter, operator, value,
-                                          alt_section, *parameters))
+                                          dependent_parameters))
 
     def check_ensemble(self, ens):
         keep_ensemble = True
         mask_ensemble = False
 
         # process the variable leader first, to see if we need to mask the ensemble
-        for section, parameter, operator, value, alt_section, *parameters in self.rules['vl_default']:
-            if parameters or alt_section!=None:
+        for section, parameter, operator, value, dependent_parameters in self.rules['vl_default']:
+            if dependent_parameters:
                 raise NotImplementedError('It is not possible (yet) to apply a mask to other variables, for the variable leader')
             v = ens[section][parameter]
             f = self.operations[operator]
@@ -185,19 +193,17 @@ class ValueLimit(QualityControl):
             # variable leader does not require the ensemble to be
             # masked. See if there is any particular parameter to be
             # masked.
-            for section, parameter, operator, value, alt_section, *parameters in self.rules['default']:
+            for section, parameter, operator, value, dependent_parameters in self.rules['default']:
                 if section not in ens.keys():
                     continue
                 v = ens[section][parameter]
                 f = self.operations[operator]
                 condition = f(v, value)
                 ens[section][parameter] = self.apply_condition(condition, v)
-                for p in parameters:
-                    if alt_section:
-                        s = alt_section
-                    else:
-                        s = section
-                    ens[section][p] = self.apply_condition(condition, ens[s][p])
+                # now apply the condition to other parameters if required:
+                for s, ps in dependent_parameters.items():
+                    for p in ps:
+                        ens[s][p] = self.apply_condition(condition, ens[s][p])
             # do things slightly different if regex is used
             for section, parameter, operator, value, boolean in self.rules['regex']:
                 if section not in ens.keys():
@@ -260,9 +266,6 @@ class AcousticAmplitudeLimit(QualityControl):
         super().__init__()
         self.amplitude_limit = amplitude_limit
 
-    def SNR(self, echointensity):
-        return 10**((echointensity-self.noise_floor_db)/10)
-    
     def check_ensemble(self, ens):
         nbeams = ens['fixed_leader']['N_Beams']
         s = ["Echo%d"%(i+1) for i in range(nbeams)]
