@@ -80,12 +80,16 @@ class Info(Coroutine):
     ----------
     header : str ('')
          header to be displayed before printing leader information.
+    pause : bool (False)
+         pauses processing after displaying information. Note that this
+         cannot be used when files are processed automatically.
     
     '''
-    def __init__(self, header = ''):
+    def __init__(self, header = '', pause=False):
         super().__init__()
         self.coro_fun = self.coro_show_info()
         self.header = header
+        self.pause = pause
         
     @coroutine
     def coro_show_info(self):
@@ -110,10 +114,37 @@ class Info(Coroutine):
                 print(f"{p:20s} : {ens['fixed_leader'][p]}")
             except KeyError:
                 pass
-        print("\n\n")
-    
+        print("\n")
+        for section in DEFAULT_PARAMETERS.keys():
+            if section=='fixed_leader':
+                continue
+            print(f"Variables in {section.replace('_',' ')}:")
+            try:
+                s = " - " .join(ens[section].keys())
+            except KeyError:
+                pass
+            else:
+                for line in self.wrapline(s):
+                    print(f"\t{line}")
+        if self.pause:
+            input("Type <enter> to continue...")
 
-
+    def wrapline(self, line, max_chars=75, marker=' - '):
+        if len(line)<max_chars:
+            return [line]
+        else:
+            lines = []
+            while True:
+                tmp = line[:max_chars]
+                try:
+                    idx = tmp.rindex(marker)
+                except ValueError:
+                    lines.append(tmp)
+                    break
+                else:
+                    lines.append(tmp[:idx])
+                    line = line[idx+len(marker):]
+            return lines
 
 class Writer(Coroutine):
     YEAR = 2000
@@ -375,43 +406,46 @@ class Writer(Coroutine):
 
 
 class NetCDFWriter(Writer):
-    VARIABLES = dict(N_Cells = ('u1', 'scalar', '-'), 
-                     N_PingsPerENS = ('u1', 'scalar', '-'),
-                     Blank = ('f4', 'scalar', 'm'),
-                     FirstBin = ('f4', 'scalar', 'm'),
+    VARIABLES = dict(fixed_leader = dict(N_Cells = ('u1', 'scalar', '-'), 
+                                         N_PingsPerENS = ('u1', 'scalar', '-'),
+                                         Blank = ('f4', 'scalar', 'm'),
+                                         FirstBin = ('f4', 'scalar', 'm')),
                      #
-                     Roll = ('f4', 'onedim', 'deg'), 
-                     Pitch = ('f4', 'onedim', 'deg'), 
-                     Heading = ('f4', 'onedim','deg'), 
-                     Soundspeed = ('f4', 'onedim', 'm/s'), 
-                     Salin = ('f4', 'onedim', 'SA'), 
-                     Temp = ('f4', 'onedim', 'Celcius'), 
-                     Press = ('f4', 'onedim', 'bar'), 
-                     Ensnum = ('i8', 'onedim', '-'), 
-                     Time = ('f8', 'onedim', 's'),
+                     variable_leader = dict(Roll = ('f4', 'onedim', 'deg'), 
+                                            Pitch = ('f4', 'onedim', 'deg'), 
+                                            Heading = ('f4', 'onedim','deg'), 
+                                            Soundspeed = ('f4', 'onedim', 'm/s'), 
+                                            Salin = ('f4', 'onedim', 'SA'), 
+                                            Temp = ('f4', 'onedim', 'Celcius'), 
+                                            Press = ('f4', 'onedim', 'bar'), 
+                                            Ensnum = ('i8', 'onedim', '-'), 
+                                            Time = ('f8', 'onedim', 's')),
                      #
-                     Velocity1 = ('f4', 'twodim', 'm/s'), 
-                     Velocity2 = ('f4', 'twodim', 'm/s'), 
-                     Velocity3 = ('f4', 'twodim', 'm/s'), 
-                     Velocity4 = ('f4', 'twodim', 'm/s'), 
-                     Echo1 = ('f4', 'twodim', 'dB'), 
-                     Echo2 = ('f4', 'twodim', 'dB'), 
-                     Echo3 = ('f4', 'twodim', 'dB'), 
-                     Echo4 = ('f4', 'twodim', 'dB'), 
-                     Echo_AVG = ('f4', 'twodim', 'dB'),
+                     velocity = dict(Velocity1 = ('f4', 'twodim', 'm/s'), 
+                                     Velocity2 = ('f4', 'twodim', 'm/s'), 
+                                     Velocity3 = ('f4', 'twodim', 'm/s'), 
+                                     Velocity4 = ('f4', 'twodim', 'm/s')),
+                     echo = dict(Echo1 = ('f4', 'twodim', 'dB'), 
+                                 Echo2 = ('f4', 'twodim', 'dB'), 
+                                 Echo3 = ('f4', 'twodim', 'dB'), 
+                                 Echo4 = ('f4', 'twodim', 'dB'), 
+                                 Echo_AVG = ('f4', 'twodim', 'dB')),
+                     correlation = dict(Corr1 = ('f4', 'twodim', 'counts'), 
+                                        Corr2 = ('f4', 'twodim', 'counts'), 
+                                        Corr3 = ('f4', 'twodim', 'counts'), 
+                                        Corr4 = ('f4', 'twodim', 'counts'), 
+                                        Corr_AVG = ('f4', 'twodim', 'counts')),
                      #
-                     BTVel1 = ('f4', 'onedim', 'm/s'),
-                     BTVel2 = ('f4', 'onedim', 'm/s'),
-                     BTVel3 = ('f4', 'onedim', 'm/s'),
-                     BTVel4 = ('f4', 'onedim', 'm/s'),
-                     Range1 = ('f4', 'onedim', 'm'),
-                     Range2 = ('f4', 'onedim', 'm'),
-                     Range3 = ('f4', 'onedim', 'm'),
-                     Range4 = ('f4', 'onedim', 'm')
+                     bottom_track = dict(BTVel1 = ('f4', 'onedim', 'm/s'),
+                                         BTVel2 = ('f4', 'onedim', 'm/s'),
+                                         BTVel3 = ('f4', 'onedim', 'm/s'),
+                                         BTVel4 = ('f4', 'onedim', 'm/s'),
+                                         Range1 = ('f4', 'onedim', 'm'),
+                                         Range2 = ('f4', 'onedim', 'm'),
+                                         Range3 = ('f4', 'onedim', 'm'),
+                                         Range4 = ('f4', 'onedim', 'm'))
                      )
-    SECTIONS = 'fixed_leader variable_leader velocity echo bottom_track'.split()
-                                    
-                                    
+    
     def __init__(self, output_file=None, ensemble_size_limit=None, has_bottom_track=True):
         ''' Constructor
 
@@ -489,6 +523,11 @@ class NetCDFWriter(Writer):
         
         return time, z, lat, lon
     
+    def _create_variable_name(self, s, v):
+        if s != "variable_leader" and s != "fixed_leader":
+            v = "/".join((s,v))
+        return v
+        
     def create_variables(self, ens):
         variables =dict()
         variables['time'] = self.dataset.createVariable('time', 'f8', ('time',))
@@ -503,19 +542,20 @@ class NetCDFWriter(Writer):
         z += ens['fixed_leader']['FirstBin']
         direction = int(ens['fixed_leader']['Xdcr_Facing']=='Up') * 2 - 1
         variables['z'][...] = z * direction
-
+        sections = list(NetCDFWriter.VARIABLES.keys())
         for s, grp in ens.items():
-            if s not in self.SECTIONS:
+            if s not in sections:
                 continue
-            for v, value in grp.items():
+            for _v, value in grp.items():
                 try:
-                    fmt, dim, units = self.VARIABLES[v]
+                    fmt, dim, units = self.VARIABLES[s][_v]
                 except KeyError:
                     pass #print(f"Not configured to write {v}.")
                 else:
+                    v = self._create_variable_name(s, _v)
                     if dim == 'scalar':
-                        variables[v] = self.dataset.createVariable(v, fmt)
-                        variables[v][...] = value
+                         variables[v] = self.dataset.createVariable(v, fmt)
+                         variables[v][...] = value
                     elif dim == 'onedim':
                         variables[v] = self.dataset.createVariable(v, fmt, ('time',))
                     elif dim == 'twodim':
@@ -528,14 +568,15 @@ class NetCDFWriter(Writer):
     def add_ensemble(self, ens, variables):
         k = self.ensemble_counter
         for s, grp in ens.items():
-            if s not in self.SECTIONS:
+            if s not in self.VARIABLES.keys():
                 continue
-            for v, value in grp.items():
+            for _v, value in grp.items():
                 try:
-                    fmt, dim, units = self.VARIABLES[v]
+                    fmt, dim, units = self.VARIABLES[s][_v]
                 except KeyError:
                     pass
                 else:
+                    v = self._create_variable_name(s, _v)
                     if dim == 'onedim':
                         variables[v][k] = value
                     elif dim == 'twodim':
@@ -764,7 +805,10 @@ class DataStructure(Writer):
         for p in PARAMETERS['fixed_leader']:
             if p in ignores:
                 continue
-            self.config[p] = config[p]
+            try:
+                self.config[p] = config[p]
+            except KeyError:
+                print(f"Parameter {p} is not available. Ignoring.")
         self.config['r'] = config['FirstBin'] + np.arange(config['N_Cells'])*config['DepthCellSize']
 
         
