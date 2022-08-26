@@ -249,6 +249,8 @@ class Writer(Coroutine):
         for s, k in self.parameters['scalar']:
             if not s in self.writeable_sections:
                 continue
+            if not s in ens.keys(): # section is not present
+                continue
             # single out special cases
             if s=='variable_leader' and k=='Timestamp':
                 try:

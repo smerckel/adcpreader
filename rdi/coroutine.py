@@ -1,7 +1,13 @@
 # A decorator function that takes care of starting a coroutine
 # automatically on call.
-
 from copy import deepcopy
+
+ENABLED = 1
+DISABLED = 0
+
+
+
+
 
 def coroutine(func):
     def start(*args,**kwargs):
@@ -14,7 +20,7 @@ def coroutine(func):
 class Coroutine(object):
     def __init__(self):
         self._targets=[]
-
+        
     def __or__(self, rhs):
         self.send_to(rhs)
         try:
@@ -27,7 +33,24 @@ class Coroutine(object):
             pass
         return rhs
 
-        
+    @coroutine
+    def __coro_passthrough(self):
+        # a coroutine implementation that just passes the ensemble without modifying
+        # this coroutine is intended to replace the class own definition if the class should
+        # be disabled (but is kept in the pipe line).
+        while True:
+            try:
+                ens = (yield)
+            except GeneratorExit:
+                break
+            else:
+                self.send(ens)
+        self.close_coroutine()
+
+    def disable(self):
+        # override the class's corofun with a passthrough version
+        self.coro_fun = self.__coro_passthrough()
+
     def send_to(self, *targets):
         for target in targets:
             self._targets.append(target.coro_fun)

@@ -247,6 +247,8 @@ system than the ensemble has.'''
                     mask = np.array([ens[k]['%s%d'%(_v,i+1)].mask.astype(float) for i in range(4)])
                 except AttributeError:
                     mask = None
+                except KeyError: # nothing to do
+                    continue 
                 x = np.array([ens[k]['%s%d'%(_v,i+1)] for i in range(4)])
                 if x.shape[0] == 1: # for bottom track values
                     xp = np.array(R @ x.T)

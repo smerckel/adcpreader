@@ -404,12 +404,12 @@ class LoweredADCP(object):
             ug = np.ma.masked_all(0)
             logger.warning("Failed inversion")
             return ug, uw
-
-        m = np.ma.masked_all(N+nz, float)
-        m[non_zero_columns] = mp[:,0]
-        ug = m[:N]
-        uw = m[N:]
-        return ug, uw
+        return mp
+        # m = np.ma.masked_all(N+nz, float)
+        # m[non_zero_columns] = mp[:,0]
+        # ug = m[:N]
+        # uw = m[N:]
+        # return ug, uw
     
     def compute_depth_referenced_velocity_matrix(self, dvl_u, dvl_gf_z, waterdepth=None, bottom_clearance=1):
         ''' Compute depth referenced velocity matrix
@@ -450,7 +450,7 @@ class LoweredADCP(object):
                 else:
                     _u = dvl_u[i].data # all fine, use them all
                     _r = self.dvl_r
-            if np.isfinite(waterdepth):
+            if waterdepth is not None and np.isfinite(waterdepth):
                 _u, _r = np.compress(_r+_z < waterdepth-bottom_clearance, (_u, _r), axis=1)
             try:
                 U[i,:] = np.interp(self.zi, _r+_z, _u, left=np.nan, right=np.nan)
@@ -485,7 +485,7 @@ class LoweredADCP(object):
         nz = len(self.zi)
         g_right_filled = np.zeros(nz, int)
         # construct the G matrix
-
+        gf_ui = np.interp(self.zi, dvl_gf_z, dvl_gf_u)
         for i, u in enumerate(U):
             if np.all(u==0):
                 continue
@@ -493,16 +493,23 @@ class LoweredADCP(object):
             idx = np.where(~u.mask)[0] # perhaps exclude measurements that are *exactly* zero?
             # in this ping we have len(idx) measurements. So G get this number of lines.
             for j in idx:
-                g_left = np.zeros(N, float)
-                g_left[i]=-1.
+                #g_left = np.zeros(N, float)
+                #g_left[i]=-1.
                 g_right = np.zeros(nz, float)
                 g_right[j] = 1
+                # k is the index for zi corresponding to z[i]
+                k = (self.index_fun(dvl_gf_z[i])+0.5).astype(int)
+                if k<0:
+                    continue
+                g_right[k] = -1
                 g_right_filled[j]=1 # to keep track zero columns later.
-                G.append(np.hstack((g_left, g_right)))
-                d.append(u[j])
-                
+                g_right_filled[k]=1 # to keep track zero columns later.
+                G.append(g_right)
+                d.append(u[j]+gf_ui[k])
+
             # add bottom track information, if available
             if not np.ma.is_masked(dvl_bt_u[i]) and self.use_bottom_track:
+                Q
                 g_left = np.zeros(N, float)
                 g_left[i]=1.
                 g_right = np.zeros(nz, float)
@@ -511,6 +518,7 @@ class LoweredADCP(object):
 
             # adding glider flight information
             if self.use_glider_flight:
+                Q
                 g_left = np.zeros(N, float)
                 g_left[i]=1.
                 g_right = np.zeros(nz, float)
@@ -519,18 +527,10 @@ class LoweredADCP(object):
                 g_right_filled[k]=1 # to keep track zero columns later.
                 G.append(np.hstack((g_left, g_right)))
                 d.append(dvl_gf_u[i])
-                
-            # I think the code below should not be here. Only one surface measurement should be used?    
-            #if self.use_surface_velocity_constraint and np.isfinite(u_surface) and dvl_gf_z[i]<1:
-            #    g_left = np.zeros(N, float)
-            #    g_right = np.zeros(nz, float)
-            #    g_left[i] = 1
-            #    G.append(np.hstack((g_left, g_right)))
-            #    d.append(u_surface)
 
-                
         # adding surface velocity
         if self.use_surface_velocity_constraint and np.isfinite(u_surface):
+            Q
             g_left = np.zeros(N, float)
             g_right = np.zeros(nz, float)
             g_right[0] = 1
@@ -542,10 +542,9 @@ class LoweredADCP(object):
             
         # adding constraint by adding all velocities.
         if self.use_barotropic_velocity_constraint and np.isfinite(u_barotropic):
-            g_left = np.zeros(N, float)
-            ## g_right is now equal to g_right_filled.
-            G.append(np.hstack((g_left, g_right_filled)))
-            d.append(u_barotropic * g_right_filled.sum())
+            g_right = np.ones(nz, float)
+            G.append(g_right)
+            d.append(u_barotropic * nz)
         G = np.array(G)
         d = np.array(d).reshape(-1, 1)
         return G, d
@@ -575,3 +574,69 @@ class LoweredADCP(object):
         non_zero_columns = np.array(non_zero_columns)
         return Gp, non_zero_columns
 
+if __name__ == "__main__":
+    
+    import pickle
+    fn = "test_data_dvl_profile_100.pck"
+    #fn = "test_data_dvl_profile_200.pck" # seems to work
+    with open(fn, "rb") as fp:
+        data = pickle.load(fp)
+    u = data["u"]
+    z = data["z"]
+    bt_u = data["bt_u"]
+    gf_u = data["gf_u"]
+    u_barotropic = data["u_barotropic"]
+    u_surface = data["u_surface"]
+    dvl_data = data['dvl_data']
+    
+    ladcp_configuration = dict(use_bottom_track=False,
+                               use_barotropic_velocity_constraint=True,
+                               use_surface_velocity_constraint=False,
+                               use_glider_flight=False,
+                               zi_min=15,
+                               zi_max=205,
+                               dz=2)
+    m = LoweredADCP()
+    m.method_settings(**ladcp_configuration)
+    m.grid_settings(**ladcp_configuration)
+    m.initialise_grid(-dvl_data["r"])
+
+    u.mask[:, 6:]=True
+    U = m.compute_depth_referenced_velocity_matrix(u, z)
+
+    gf_ui = np.interp(m.zi, z, gf_u)
+    kz = interp1d(m.zi, np.arange(m.zi.shape[0]))
+    
+    N, nz = U.shape
+    G=[]
+    d=[]
+    for i, _u in enumerate(U):
+        try:
+            k = kz(z[i])
+        except ValueError:
+            print(f"skipping {z[i]}")
+            continue
+        idx = np.where(~_u.mask)[0]
+        for j in idx:
+            g = np.zeros(nz, float)
+            g[j]=1
+            g[int(k+0.5)]=-1
+            G.append(g)
+            d.append(_u[j] + 0.9* gf_ui[int(k+0.5)])
+    G.append(np.ones(nz, float))
+    d.append(0.1)
+    G=np.array(G)
+    d=np.array(d)
+    mp = np.linalg.inv(G.T @ G) @ G.T @ d
+
+    Q
+    
+    Up = U.copy()
+    for i,_ug in enumerate(gf_u): 
+        Up[i]+=_ug
+    uw = m.compute_velocity_profile(U, bt_u, z, gf_u, 0*u_barotropic, u_surface)
+    s=0.5
+    for i, _u in enumerate(Up):
+        plot(s*i+_u*0, m.zi,'k')
+        plot(s*i+_u, m.zi,'C3')
+            

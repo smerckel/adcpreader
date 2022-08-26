@@ -1,4 +1,6 @@
 import arrow
+from hashlib import md5
+import os
 import sys
 
 import numpy as np
@@ -94,10 +96,51 @@ class TestQC:
         pipeline.process([pd0_filename])
         assert data.velocity_east.max() <= 0.1 and data.velocity_north.max() <= 0.1
         #return data
+
+
+class TestWriter:
+    
+    def remove_file(self, fn):
+        os.unlink(fn)
+
+    def checksum_file(self, fn):
+        with open(fn, 'rb') as fp:
+            M = md5(fp.read())
+        return M.hexdigest()
+
+    def test_ascii(self):
+        tmpfile = 'output.asc'
+        source = rdi.rdi_reader.PD0()
+            
+        with open(tmpfile, 'w') as fp:
+            data = rdi.rdi_writer.AsciiWriter(output_file=fp)
+
+            pipeline = source | data
+            pipeline.process([pd0_filename])
+
+        checksum = self.checksum_file(tmpfile)
+        self.remove_file(tmpfile)
+        assert checksum == 'f0777f66ce6c01c47b23b447cf8fb1f3'
+
+    def test_nc(self):
+        tmpfile = 'output.nc'
+        source = rdi.rdi_reader.PD0()
+            
+        data = rdi.rdi_writer.NetCDFWriter(tmpfile)
+        
+        pipeline = source | data
+
+        with data: 
+            pipeline.process([pd0_filename])
+
+        checksum = self.checksum_file(tmpfile)
+        self.remove_file(tmpfile)
+        assert checksum == '4ce1a6e9911f5e3ba6fd1f41dfc19e21'
+
         
 if __name__ == "__main__":
 
-    tq = TestQC()
-    data = tq.test_value_limit_dependent_parameters()
+    tq = TestWriter()
+    data = tq.test_nc()
     
         
