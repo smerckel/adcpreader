@@ -1,6 +1,6 @@
 |PyPI version| |Docs badge| |License|
 
-RDI - A python3 module for reading RDI's ADCP binary data files.
+ADCPREADER - A python3 module for reading RDI's ADCP binary data files.
 =========
 
 Change log
@@ -19,7 +19,7 @@ created by RDI's 600 kHz Doppler Velocity Log mounted on Slocum ocean
 gliders. The module can, however, also be used to read binary date
 from other stand-alone ADCPs, that adhere to RDI's binary data format.
 
-The philosophy behind the implementation or *rdi* is that acoustic
+The philosophy behind the implementation of *adcpreader* is that acoustic
 ping (ensembles) are processed according to a user-defined
 pipeline. Since binary data files can be huge, and the total amount of
 data of a deployment even larger, possible issues with limited memory
@@ -29,21 +29,21 @@ making extensively use of coroutines.
 Installation
 ------------
 
-The python module *rdi* can be installed from source, using the
-standard method to install python code. Alternatively, *rdi* can also
-be installed from PyPi, using ``pip install rdi``.
+The python module *adcpreader* can be installed from source, using the
+standard method to install python code. Alternatively, *adcpreader* can also
+be installed from PyPi, using ``pip install adcpreader``.
 
 
 
 Documentation
 -------------
-Comprehensive documentation is provided at https://rdi.readthedocs.io/en/latest/
+Comprehensive documentation is provided at https://adcpreader.readthedocs.io/en/latest/
 
 Quick-start
 -----------
 For the impatient...
 
-The module *rdi* implements a class PD0(), which returns an object the
+The module *adcpreader* implements a class PD0(), which returns an object the
 serves as the source of the pipeline. Usually the end of the pipeline
 will be some sink that either writes the data into a file, or into an
 object that allows access to the data during an interactive python
@@ -52,8 +52,8 @@ session.
 In the simplest case we can construct a pipeline with a source and
 sink only::
 
-  >>> from rdi.rdi_reader import PD0
-  >>> from rdi.rdi_writer import DataStructure
+  >>> from adcpreader.rdi_reader import PD0
+  >>> from adcpreader.rdi_writer import DataStructure
   >>> source = PD0()
   >>> sink = DataStructure()
   >>> pipeline = source | sink
@@ -103,7 +103,7 @@ An extensive number of operations are defined that can be placed in
 the pipeline. Some are for information purposes only, but most will in
 some way modify the data. You could define an operator::
 
-  >>> info = rdi.rdi_writer.Info(pause=True)
+  >>> info = adcpreader.rdi_writer.Info(pause=True)
 
 and create a new pipeline::
 
@@ -116,12 +116,12 @@ continuing).
 
 Other operations will affect the data. Examples, are corrections,
 rotations, coordinate transforms, and quality checks. See for the
-documentation for further information on https://rdi.readthedocs.io/en/latest/.
+documentation for further information on https://adcpreader.readthedocs.io/en/latest/.
 
 
-.. |PyPI version| image:: https://badgen.net/pypi/v/rdi
-   :target: https://pypi.org/project/rdi
-.. |Docs badge| image:: https://readthedocs.org/projects/rdi/badge/?version=latest
-   :target: https://rdi.readthedocs.io/en/latest/
+.. |PyPI version| image:: https://badgen.net/pypi/v/adcpreader
+   :target: https://pypi.org/project/adcpreader
+.. |Docs badge| image:: https://readthedocs.org/projects/adcpreader/badge/?version=latest
+   :target: https://adcpreader.readthedocs.io/en/latest/
 .. |License| image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: https://www.gnu.org/licenses/gpl-3.0
