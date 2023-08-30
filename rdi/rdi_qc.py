@@ -150,7 +150,27 @@ class ValueLimit(QualityControl):
         Example
         -------
         mask_parameter("velocity", "Velocity1", "||>", 0.1, 
-                        dependent_parameters=dict(bottom_track=["BTVel1", "BTVel2"])) 
+                        dependent_parameters=dict(bottom_track=["BTVel1", "BTVel2"]))
+
+        Table of implemented operators:
+        
+        +--------+------------------------------+
+        |   >    | greater than                 |
+        +--------+------------------------------+
+        |   >=   | greater equal than           |
+        +--------+------------------------------+
+        |   <    | smaller than                 |
+        +--------+------------------------------+
+        |   <=   | smaller equal than           |
+        +--------+------------------------------+
+        |  ||>   | absolute greater than        |
+        +--------+------------------------------+
+        |  ||>=  | absolute greater equal than  |
+        +--------+------------------------------+
+        |  ||<   | absolute smaller than        |
+        +--------+------------------------------+
+        |  ||<=  | absolute smaller equal than  |
+        +--------+------------------------------+
         
         '''
         if section == 'variable_leader':
@@ -163,7 +183,6 @@ class ValueLimit(QualityControl):
     def check_ensemble(self, ens):
         keep_ensemble = True
         mask_ensemble = False
-
         # process the variable leader first, to see if we need to mask the ensemble
         for section, parameter, operator, value, dependent_parameters in self.rules['vl_default']:
             if dependent_parameters:
@@ -204,6 +223,7 @@ class ValueLimit(QualityControl):
                 for s, ps in dependent_parameters.items():
                     for p in ps:
                         ens[s][p] = self.apply_condition(condition, ens[s][p])
+                keep_ensemble = not condition
             # do things slightly different if regex is used
             for section, parameter, operator, value, boolean in self.rules['regex']:
                 if section not in ens.keys():
@@ -231,11 +251,35 @@ class ValueLimit(QualityControl):
                         pass
                 for p in matching_parameters:
                     ens[section][p] = self.apply_condition(condition, ens[section][p])
+                keep_ensemble = not condition
         return keep_ensemble
             
 
 
 class SNRLimit(QualityControl):
+    '''Signal to Noise Ratio limit
+
+    Masks or drops ensembles for which the SNR fails to exceed the threshold
+
+    Parameters
+    ----------
+    SNR_limit: float
+        SNR threshold (default 10)
+    noise_floor_db: float
+        noise floor in dB (default 26.1)
+
+
+    
+    The SNR is calculated according to
+    
+    .. math::
+    
+         SNR = 10^{(E-E0)/10}
+
+    where :math:`E` is the echo intensity in dB, and :math:`E0` the noise floor.
+
+    '''
+    
     def __init__(self, SNR_limit = 10, noise_floor_db = 26.1):
         super().__init__()
         self.SNR_limit = SNR_limit
@@ -245,6 +289,7 @@ class SNRLimit(QualityControl):
         return 10**((echointensity-self.noise_floor_db)/10)
     
     def check_ensemble(self, ens):
+        ''' '''
         nbeams = ens['fixed_leader']['N_Beams']
         s = ["Echo%d"%(i+1) for i in range(nbeams)]
         SNR = [self.SNR(ens['echo'][_s])  for _s in s]
@@ -262,11 +307,26 @@ class SNRLimit(QualityControl):
 
 
 class AcousticAmplitudeLimit(QualityControl):
+
+    ''' Acoustic Amplitude Limit
+
+    Masks bins where the amplitude less than a given threshold.
+
+    Parameters
+    ----------
+    amplitude_limit: float
+        minimum required amplitude. (default 75)
+
+    .. note::
+
+        This limiter never drops an ensemble.
+    '''
     def __init__(self, amplitude_limit = 75):
         super().__init__()
         self.amplitude_limit = amplitude_limit
 
     def check_ensemble(self, ens):
+        ''' '''
         nbeams = ens['fixed_leader']['N_Beams']
         s = ["Echo%d"%(i+1) for i in range(nbeams)]
         amplitudes = [ens['echo'][_s]  for _s in s]
@@ -281,13 +341,21 @@ class AcousticAmplitudeLimit(QualityControl):
         return True # always return the ensemble
 
 class MaskBins(QualityControl):
-    ''' Quality check measure: blanks all given bins.
+    ''' Mask bins
+
+    This operation masks all specified bins.
+
+    Parameters
+    ----------
+    masked_bins: list of integers
+         list of bin numbers that are to be masked. Starts with 0 for the first bin. (default [])
     '''
     def __init__(self, masked_bins = []):
         super().__init__()
         self.masked_bins = masked_bins
         
     def check_ensemble(self, ens):
+        ''' '''
         nbeams = ens['fixed_leader']['N_Beams']
         mask = np.zeros_like(ens['velocity']['Velocity1'], dtype=bool)
         for i in self.masked_bins:
@@ -306,6 +374,12 @@ class Counter(Coroutine):
 
     This class merely counts the number of ensembles that pass through the pipeline at this stage.
     This implies that no ensemble is modified.
+
+    Parameters
+    ----------
+    verbose: bool
+        Sets whether the sequential number of the processed ensemble is to be printed. (default False)
+
     
     The number of ensembles counted are stored in the property counts.
 
@@ -333,3 +407,5 @@ class Counter(Coroutine):
                     print("Ensemble : {:4d}/{:5d}".format(n, self.counts))
                 self.send(ens)
         self.close_coroutine()
+
+

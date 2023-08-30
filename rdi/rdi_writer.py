@@ -8,7 +8,6 @@ import sys
 import numpy as np
 from netCDF4 import Dataset
 
-import ndf
 from rdi import __VERSION__
 from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
 
@@ -662,108 +661,13 @@ class AsciiWriter(Writer):
                 except TypeError:
                     pass
         
-class NDFWriter(Writer):
-    def __init__(self, output_file = None, has_bottom_track=True):
-        super().__init__(has_bottom_track=has_bottom_track)
-        self._global_parameters = dict()
-        self.output_file = output_file
-        self.coro_fun = self.coro_write_ensembles()
-        
-    @coroutine
-    def coro_write_ensembles(self):
-        ''' a non-lazy implementation. This reads all the data into memory because of
-            how ndf files are written. NDF files cannot be written from generators.
-        '''
-        data1d = defaultdict(lambda : [])
-        data2d = defaultdict(lambda : [])
-        self.__cache = dict(config=False, data1d=data1d, data2d=data2d)
-        while True:
-            try:
-                ens = (yield)
-            except GeneratorExit:
-                break
-            else:
-                if not self.__cache['config']:
-                    self.__cache['config']= ens['fixed_leader']
-                self.read_scalar_data(data1d, ens)
-                self.read_vector_data(data2d, ens)
-        if not self.is_context_manager:
-            self.write_to_file()
-
-    def exit(self, type, value, tb):
-        self.is_context_manager=False
-        if type is None:
-            self.write_to_file()
-            self.__cache['config']=False
-            self.__cache['data1d'].clear()
-            self.__cache['data2d'].clear()
-            
-    def write_to_file(self):
-        config = self.__cache['config']
-        if config:
-            data1d = self.__cache['data1d']
-            data2d = self.__cache['data2d']
-            data = self.create_ndf(config, data1d, data2d)
-            data.save(self.output_file)
-
-    def clear_config(self):
-        self.__chache['config']=None
-        
-    def set_filename_from_pd0(self, filename_pd0,annotation=None):
-        fn_base, fn_ext = os.path.splitext(filename_pd0)
-        if annotation:
-            self.output_file =  "{}-{}.ndf".format(fn_base,annotation)
-        else:
-            self.output_file =  "{}.ndf".format(fn_base)
-
-        
-    def add_global_parameter(self, key, value, unit):
-        self._global_parameters[key] = value, unit
-        
-    
-    def create_ndf(self, config, data1d, data2d):
-        units=defaultdict(lambda : '-', Soundspeed='m/s', Temperature='degree', Depth='m',
-                          Velocity1='m/s',Velocity2='m/s',Velocity3='m/s',Velocity4='m/s',
-                          BTVel1='m/s', BTVel2='m/s', BTVel3='m/s', BTVel4='m/s',
-                          Echo1='dB',Echo2='dB',Echo3='dB',Echo4='dB', Echo_AVG='dB',
-                          Beam_Angle='deg', DepthCellSize='m',Blank='m',ErrVelThreshold='m/s',
-                          FirstBin='m',XmtLegnth='m', LagDistance='m')
-        data = ndf.NDF()
-        tm = np.array(data1d['Time'])
-        n_cells = config['N_Cells']
-        bin_size = config['DepthCellSize']
-        z = np.arange(n_cells)*bin_size + config['FirstBin']
-        for k, v in data1d.items():
-            if k == 'Time':
-                continue
-            if "BTVel" in k:
-                i = int(k[-1])
-                s = TransformationTranslations[config['CoordXfrm']][i-1]
-                ks = k.replace("BTVel%d"%(i), s)
-            else:
-                ks = k
-            v = self.array1d_from_list(v)
-            data.add_parameter(ks, units[k], (tm, v))
-        for k, v in data2d.items():
-            if "Velocity" in k:
-                i = int(k[-1])
-                s = TransformationTranslations[config['CoordXfrm']][i-1]
-                ks = k.replace("Velocity%d"%(i), s)
-            else:
-                ks = k
-            v = self.array2d_from_list(v)
-            data.add_parameter(ks, units[k], (tm,z,v.T))
-        for k, v in config.items():
-            if isinstance(v, str):
-                data.add_metadata(k,v)
-            else:
-                data.add_global_parameter(k, v, units[k])
-        # add any metadata present
-        for k, v in self._global_parameters.items():
-            data.add_global_parameter(k,*v)
-        return data
 
 
+
+
+
+
+                
 class DataStructure(Writer):
     ''' Simple in memory data structure '''
     def __init__(self, has_bottom_track=True):
@@ -811,8 +715,8 @@ class DataStructure(Writer):
                 self.config[p] = config[p]
             except KeyError:
                 print(f"Parameter {p} is not available. Ignoring.")
-        self.config['r'] = config['FirstBin'] + np.arange(config['N_Cells'])*config['DepthCellSize']
-
+        self.data['r'] = config['FirstBin'] + np.arange(config['N_Cells'])*config['DepthCellSize']
+        self.config['r'] = self.data['r']
         
     def write_header(self, config, fd):
         pass
