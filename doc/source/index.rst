@@ -6,7 +6,7 @@
 Welcome to Python RDI ADCP's documentation
 ==========================================
 
-These pages describe the a python3 implementation of software to read and
+These pages describe a python implementation of software to read and
 process native RDI ADCP binaries. The key idea is to provide a
 software to set up a pipeline of operations, from reading the
 data to writing the data into the desired output format, where
@@ -46,26 +46,6 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
-
-
-Examples of RST
----------------
-   
-+--------+----------+------+
-| nombre | apellido | edad |
-+========+==========+======+
-| pepe   | zarate   | 28   |
-+--------+----------+------+
-| toto   | garcia   | 29   |
-+--------+----------+------+
-
-.. math::
-
-   \frac{ \sum_{t=0}^{N}f(t,k) }{N}
-
-
-   
-:math:`\frac{ \sum_{t=0}^{N}f(t,k) }{N}`
 
 
 
