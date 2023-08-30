@@ -8,10 +8,10 @@ import sys
 import numpy as np
 from netCDF4 import Dataset
 
-from rdi import __VERSION__
-from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
+from adcpreader import __VERSION__
+from adcpreader.rdi_reader import get_ensemble_time, unixtime_to_RTC
 
-from rdi.coroutine import coroutine, Coroutine
+from adcpreader.coroutine import coroutine, Coroutine
 
 TransformationTranslations = dict(Earth = 'east north up error'.split(),
                                   Ship = 'starboard forward up error'.split(),

@@ -5,12 +5,10 @@ import logging
 
 import numpy as np
 
-from rdi import __VERSION__
+from adcpreader import __VERSION__
 
-from rdi.coroutine import coroutine, Coroutine
+from adcpreader.coroutine import coroutine, Coroutine
 
-# add filename=... to log to a file instead.
-logging.basicConfig(level=logging.INFO)
 
 ENSEMBLE_VARIABLES = """Ensnum RTC Ensmsb BITResult Soundspeed XdcrDepth
 Heading Pitch Roll Salin Temp MPT Hdg_SD Pitch_SD 

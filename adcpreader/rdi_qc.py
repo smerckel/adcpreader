@@ -2,9 +2,9 @@ import re
 
 import numpy as np
 
-from rdi import __VERSION__
+from adcpreader import __VERSION__
 
-from rdi.coroutine import coroutine, Coroutine
+from adcpreader.coroutine import coroutine, Coroutine
 
 
 # default setting for if true, all ensembles that have all data

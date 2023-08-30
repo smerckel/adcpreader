@@ -32,8 +32,8 @@ from itertools import chain
 
 import numpy as np
 
-from rdi import __VERSION__
-from rdi.coroutine import coroutine, Coroutine
+from adcpreader import __VERSION__
+from adcpreader.coroutine import coroutine, Coroutine
 
 Attitude = namedtuple('Attitude', 'hdg pitch roll')
 Beamconfig = namedtuple('Beamconfig', 'a b c d facing')

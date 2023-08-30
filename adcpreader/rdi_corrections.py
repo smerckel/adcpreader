@@ -12,12 +12,12 @@ except ImportError:
 
 import dbdreader
 
-from rdi import __VERSION__
-from rdi import rdi_transforms
-from rdi.rdi_reader import get_ensemble_time, unixtime_to_RTC
-from rdi.rdi_transforms import RotationMatrix
+from adcpreader import __VERSION__
+from adcpreader import rdi_transforms
+from adcpreader.rdi_reader import get_ensemble_time, unixtime_to_RTC
+from adcpreader.rdi_transforms import RotationMatrix
 
-from rdi.coroutine import coroutine, Coroutine
+from adcpreader.coroutine import coroutine, Coroutine
 
 
 class AttitudeFromGlider(Coroutine):

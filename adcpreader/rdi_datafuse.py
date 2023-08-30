@@ -4,67 +4,7 @@ import os
 
 import numpy as np
 
-import ndf
-
-import rdi
-from rdi.coroutine import Coroutine, coroutine
-
-
-class NDFReader(Coroutine):
-    def __init__(self, filename):
-        super().__init__()
-        self.coro_fun = self.coro_read_from_ndf(filename)
-        
-    def __enter__(self):
-        pass
-
-    def __exit__(self, type, value, tb):
-        if type is None:
-            self.close_coroutine()
-
-    @coroutine
-    def coro_read_from_ndf(self, filename):
-        ''' 
-        Coroutine reading from a single ndf file. Upon the receptioin of
-        an ensemble the pointer is advanced until the appropriate time 
-        that of the ensemble, and the u, v, w and z data from the glider flight model
-        are send out as a new ordered dictionary.
-
-        Parameters
-        ----------
-        filename : string
-            name of ndf file containing gliderflight data
-
-        Returns
-        -------
-        coroutine
-
-        '''
-        data = ndf.NDF(filename, open_mode='open')
-        t, u, v, w, z = data.get_sync("u", "v w z".split())
-        data.close()
-        i = 0
-        while True:
-            try:
-                ens = (yield)
-            except GeneratorExit:
-                break
-            else:
-                t_adcp = ens['variable_leader']['Timestamp']
-                while t[i]<=t_adcp:
-                    i+=1
-                f = (t_adcp-t[i-1])/(t[i]-t[i-1])
-                ui = f * u[i] + (1-f)*u[i-1]
-                vi = f * v[i] + (1-f)*v[i-1]
-                wi = f * w[i] + (1-f)*w[i-1]
-                zi = f * z[i] + (1-f)*z[i-1]
-                gf = OrderedDict()
-                gf['velocity_east'] = ui
-                gf['velocity_north'] = vi
-                gf['velocity_up'] = wi
-                gf['depth'] = zi
-                self.send(gf)
-        self.close_coroutine()
+from adcpreader.coroutine import Coroutine, coroutine
 
     
 class DataFuser(Coroutine):

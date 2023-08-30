@@ -2,9 +2,9 @@ from collections import namedtuple
 
 import numpy as np
 
-from rdi import __VERSION__
+from adcpreader import __VERSION__
 
-from rdi.coroutine import Coroutine, coroutine
+from adcpreader.coroutine import Coroutine, coroutine
 
 
 class AcousticAbsorption(object):
