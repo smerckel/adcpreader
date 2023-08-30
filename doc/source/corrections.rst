@@ -43,27 +43,27 @@ to factors given to the constructor.
 A number of ensembles can be averaged into a single ensemble, using
 the class `Aggregator`. The parameters averaged are:
 
-# Roll
-# Pitch
-# Heading
-# Soundspeed
-# Salin
-# Temp
-# Press
-# Time
-# Timestamp
-# Velocity1
-# Velocity2
-# Velocity3
-# Velocity4
-# Echo1
-# Echo2
-# Echo3
-# Echo4
-# BTVel1
-# BTVel2
-# BTVel3
-# BTVel4
+#. Roll
+#. Pitch
+#. Heading
+#. Soundspeed
+#. Salin
+#. Temp
+#. Press
+#. Time
+#. Timestamp
+#. Velocity1
+#. Velocity2
+#. Velocity3
+#. Velocity4
+#. Echo1
+#. Echo2
+#. Echo3
+#. Echo4
+#. BTVel1
+#. BTVel2
+#. BTVel3
+#. BTVel4
 
 
 The classes  `AttitudeCorrectionLinear` and

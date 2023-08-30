@@ -8,7 +8,7 @@ from matplotlib import pyplot, dates
 from scipy.optimize import fmin
 
 import dbdreader
-from rdi import rdi_reader, rdi_transforms, rdi_corrections, rdi_writer, rdi_qc
+from adcpreader import rdi_reader, rdi_transforms, rdi_corrections, rdi_writer, rdi_qc
 
     
 def get_filenames(datadir, glider, n_files = None, start = 0, pd0_extension='pd0'):

@@ -1,3 +1,3 @@
 #!/bin/bash
 
-sphinx-apidoc -f -o source/ ../../rdi ../../rdi/pd0rename.py ../../rdi/setup.py ../../rdi/thomas_pd0.py
+sphinx-apidoc -f -o source/ ../ ../pd0rename.py ../setup.py ../tests/*.py ../examples/*.py

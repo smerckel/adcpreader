@@ -231,12 +231,14 @@ class ScaleEchoIntensities(Coroutine):
     Parameters
     ----------
     
-    factor_beam1 : factor to correct the EI for beam1
-    factor_beam2 : factor to correct the EI for beam2
-    factor_beam3 : factor to correct the EI for beam3
-    factor_beam4 : factor to correct the EI for beam4
-
-
+    factor_beam1 : float
+        factor to correct the EI for beam1
+    factor_beam2 : float
+        factor to correct the EI for beam2
+    factor_beam3 : float
+        factor to correct the EI for beam3
+    factor_beam4 : float
+        factor to correct the EI for beam4
     '''
     
     def __init__(self, factor_beam1 = 1.0, factor_beam2 = 1.0, factor_beam3 = 1.0, factor_beam4 = 1.0):
@@ -265,7 +267,10 @@ class BinMapping(Coroutine):
     Parameters
     ----------
     pitch_mounting_angle : float
+        mounting angle for pitch
     roll_mounting_angle : float
+        mounting angle for roll
+
     
     '''
     
@@ -323,12 +328,12 @@ class BinMapping(Coroutine):
         Parameters
         ----------
         ens : dictionary
-              ensemble dictionary
+            ensemble dictionary
         config : tuple
-              configuration and one-off calculations done from the info in the first ens.
+            configuration and one-off calculations done from the info in the first ens.
+        
 
         Modifies the velocity section only, and remaps velocity readings when necessary.
-
         '''
         (pitch_offset, roll_offset, beam_angle,
          beam_offsets_pitch, beam_offsets_roll,
@@ -348,32 +353,31 @@ class BinMapping(Coroutine):
             ens['velocity']['Velocity%d'%(i+1)] = ens['velocity']['Velocity%d'%(i+1)][idx[i]]
         
 class Aggregator(Coroutine):
-    '''Class to aggregate a number of ensembles into averages of time,
-    roll, pitch, heading, sound speed, salinity temperature, pressure,
-    velocity_i and echo_i. Other parameters are taken from the most
-    central ensemble.
+    '''Ensemble aggregator
 
-    Typical use:
+    Aggregates a number of ensembles into one.
 
-    agg = Aggregator(60) # 60 ensembles averaged together
+    Parameters
+    ----------
+    aggregate_size: int
+        number of ensembles to aggregate.
 
-
-    :
-    x.send_to(agg)
-    :
-
+    
+    The aggregated ensemble contains the average of the following variables:
+    
+        Roll Pitch Heading Soundspeed Salin Temp Press Time Timestamp
+    
+        Velocity1 Velocity2 Velocity3 Velocity4
+    
+        Echo1 Echo2 Echo3 Echo4
+    
+        BTVel1 BTVel2 BTVel3 BTVel4
+    
+    
     '''
     AVG_PARAMETERS = "Roll Pitch Heading Soundspeed Salin Temp Press Time Timestamp Velocity1 Velocity2 Velocity3 Velocity4 Echo1 Echo2 Echo3 Echo4 BTVel1 BTVel2 BTVel3 BTVel4".split()
     
     def __init__(self, aggregate_size):
-        ''' Constructor
-
-        Parameters
-        ----------
-        aggregate_size: int
-            this many ensembles should be aggregated.
-
-        '''
         super().__init__()
         self.aggregate_size = aggregate_size
         self.coro_fun = self.coro_aggregate()
@@ -451,7 +455,8 @@ class AttitudeCorrectionTiltCorrection(AttitudeCorrection):
         offset in pitch (rad)
     method : string
         which method to use to correct
- 
+
+    
     Two methods are available:
         method == 'simple':
             simply scale pitch and roll and correct for offset
@@ -726,12 +731,13 @@ class CorrectDepthRange(Coroutine):
         will contaminate the velocity reading. This cell and all
         further cells are masked. 
         
-            It may be that when this applies the current ensemble has
-        no informtion on bottom range. To fill in these data, a Kalman
+        It may be that when this applies the current ensemble has no
+        informtion on bottom range. To fill in these data, a Kalman
         filter is used. I am not entirely sure whether this is really
         necessary. The upshot is that we get an estiamte of the water
         depth, which is written to the bottom_track section, as
         variable 'WaterDepth'.
+
         '''
         if self.nbeams is None:
             self.get_fixed_leader_data(ens)

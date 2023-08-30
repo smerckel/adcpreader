@@ -10,63 +10,69 @@ pipeline by sending from one operation to the next. As an example we
 can define the following processors ::
 
   # first transform
-  t0 = rdi.rdi_transforms.TransformENU_SFU()
-  t1 = rdi.rdi_transforms.TransformSFU_XYZ(0, mounted_pitch, 0)
-  t2 = rdi.rdi_transforms.TransformXYZ_BEAM()
+  t0 = adcpreader.rdi_transforms.TransformENU_SFU()
+  t1 = adcpreader.rdi_transforms.TransformSFU_XYZ(0, mounted_pitch, 0)
+  t2 = adcpreader.rdi_transforms.TransformXYZ_BEAM()
   transform_enu_to_beam = t2 * t1 * t0
-
+  
   # second transform
-  t3 = rdi.rdi_transforms.TransformBEAM_XYZ()
-  t4 = rdi.rdi_transforms.TransformXYZ_SFU(0, mounted_pitch, 0)
+  t3 = adcpreader.rdi_transforms.TransformBEAM_XYZ()
+  t4 = adcpreader.rdi_transforms.TransformXYZ_SFU(0, mounted_pitch, 0)
   transform_beam_to_sfu = t4 * t3
-
+  
   # third transform
-  transform_sfu_to_enu = rdi.rdi_transforms.TransformSFU_ENU()
-
+  transform_sfu_to_enu = adcpreader.rdi_transforms.TransformSFU_ENU()
+  
   # some data filtering:
   max_velocity = 0.75
-  qc_u_limit = rdi.rdi_qc.ValueLimit()
-  qc_u_limit.set_discard_condition('velocity','Velocity1','||>',max_velocity)
-  qc_u_limit.set_discard_condition('velocity','Velocity2','||>',max_velocity)
-  qc_u_limit.set_discard_condition('velocity','Velocity3','||>',max_velocity)
-  qc_u_limit.set_discard_condition('velocity','Velocity4','||>',max_velocity)
-
-  qc_snr_limit = rdi.rdi_qc.SNRLimit(3)
-
-  qc_amplitude_limit = rdi.rdi_qc.AcousticAmplitudeLimit(75)
-
+  qc_u_limit = adcpreader.rdi_qc.ValueLimit(drop_masked_ensembles=False)
+  qc_u_limit.mask_parameter('velocity','Velocity1','||>',max_velocity)
+  qc_u_limit.mask_parameter('velocity','Velocity2','||>',max_velocity)
+  qc_u_limit.mask_parameter('velocity','Velocity3','||>',max_velocity)
+  qc_u_limit.mask_parameter('velocity','Velocity4','||>',max_velocity)
+  
+  
+  max_bt_velocity = 1.5
+  qc_bt_limit = adcpreader.rdi_qc.ValueLimit(drop_masked_ensembles=True)
+  qc_bt_limit.mask_parameter_regex('bottom_track','BTVel.*','||>',max_bt_velocity)
+  
+  
+  qc_snr_limit = adcpreader.rdi_qc.SNRLimit(3)
+  
+  qc_amplitude_limit = adcpreader.rdi_qc.AcousticAmplitudeLimit(75)
+  
   # and a writer (sink)
-  writer = rdi.rdi_writer.NetCDFWriter('output.nc')
-
+  writer = adcpreader.rdi_writer.NetCDFWriter('output.nc')
+  
   # and reader (source)
-  reader = rdi.rdi_reader.PD0()
+  reader = adcpreader.rdi_reader.PD0()                                                      
 
-Now we can setup the pipeline of operations as follows ::
+Now we can setup the pipeline of operations using the pipe symbol ::
 
-  reader.send_to(transform_enu_to_beam)
-  transform_enu_to_beam.send_to(qc_u_limit)
-  qc_u_limit.send_to(qc_snr_limit)
-  qc_snr_limit.send_to(qc_amplitude_limit)
-  qc_amplitude_limit.send_to(transform_beam_to_sfu)
-  transform_beam_to_sfu.send_to(transform_sfu_to_enu)
-  transform_sfu_to_enu.send_to(writer)
+  pipeline = reader | transform_enu_to_beam | qc_u_limit | qc_bt_limit | qc_snr_limit 
+  pipeline |= qc_amplitude_limit | transform_beam_to_sfu | transform_sfu_to_enu | counter | writer
 
-This kind of notation is awkward to read and involves unnecessary
-typing. A short-cut for this pipeline is ::
 
-  pipeline = rdi.rdi_reader.make_pipeline(reader,
-                                          transform_enu_to_beam,
-					  qc_u_limit,
-					  qc_snr_limit,
-					  qc_amplitude_limit,
-					  transform_beam_to_sfu,
-					  transform_sfu_to_enu,
-					  writer)
-
+For readability, the pipeline construction is split over two
+lines. 
+  
 To feed all data through the pipeline, it is sufficient to call ::
 
-  reader.process(filename)
+  with writer:
+      pipeline.process('../data/PF230519.PD0')
 
+
+Here we use a :code:`writer` with the with-statement, which
+automatically opens and closes the netcdf file. Alternatively, the
+open and close methods could be called explicitly ::
+  
+  writer.open()
+  pipeline.process('../data/PF230519.PD0')
+  writer.close()
+
+
+See also the pipeline.py example (examples/pipeline.py)
+  
 Branching
 ---------
 
@@ -75,23 +81,23 @@ pipelines is a walk in the park. Let's say, we want to have the
 processed data written to file in different coordinate systems. To
 then end we have to define another writer process ::
 
-  writer_sfu = rdi.rdi_writer.NetCDFWriter('output-sfu.nc')
+  writer_sfu = adcpreader.rdi_writer.NetCDFWriter('output-sfu.nc')
 
 Then we can set up a new common pipeline, and two branches ::
   
-  pipeline = rdi.rdi_reader.make_pipeline(reader,
+  pipeline = adcpreader.rdi_reader.make_pipeline(reader,
                                           transform_enu_to_beam,
 					  qc_u_limit,
 					  qc_snr_limit,
 					  qc_amplitude_limit)
   # and the two branches:
 
-  branch_enu = rdi.rdi_reader.make_pipeline(pipeline,
+  branch_enu = adcpreader.rdi_reader.make_pipeline(pipeline,
                                             transform_beam_to_sfu,
 					    transform_sfu_to_enu,
 					    writer)
 					    
-  branch_sfu = rdi.rdi_reader.make_pipeline(pipeline,
+  branch_sfu = adcpreader.rdi_reader.make_pipeline(pipeline,
                                             transform_beam_to_sfu,
 					    writer_sfu)
   # and process them:
@@ -118,12 +124,12 @@ where external data can be data collected by a glider, or GPS
 positions, for example. A simple way to achieve this is to use the
 class :class:`DataFuse`::
 
-    import rdi.rdi_datafuse
+    import adcpreader.rdi_datafuse
 
     :
     :
     
-    data_fuser = rdi.rdi_datafuse.DataFuse("glider_flight")
+    data_fuser = adcpreader.rdi_datafuse.DataFuse("glider_flight")
 	    
 
     pipeline1.send_to(data_fuser)
@@ -189,8 +195,10 @@ file, for example, with the ensemble it received:
        to this time stamp
     3) output a dictionary with the selected data
 
+TODO : THIS IS PROBABLY OBSOLETE
+       
 An example of a processing unit that does this is the
-:class:`rdi.rdi_datafuse.NDFReader` class.
+:class:`adcpreader.rdi_datafuse.NDFReader` class.
 
 .. figure:: figures/merge_external.svg
 

@@ -27,12 +27,12 @@ filename with binary data. ::
 
   import numpy as np
 
-  import rdi
+  import adcpreader
   filename = "../data/PF230519.PD0"
   
 Then, an reader object is created. ::
 
-  reader = rdi.rdi_reader.PD0()
+  reader = adcpreader.rdi_reader.PD0()
 
 We can call the process() method, with a filename or list of
 filenames as argument, to read the binary files, ensemble per ensemble ::
@@ -129,6 +129,14 @@ The idiom used to create such a train of operations looks like ::
   reader.send_to(transform)
   transform.send_to(writer)
 
+or, using syntaxic sugar ::
+
+  reader | transform | writer
+
+
+
+
+  
 In this example, the ``reader`` instance is the source (does not
 receive data), and the ``writer`` instance is the sink (does not pass
 on data further).
@@ -141,11 +149,10 @@ reader is called::
 
 By default, if all ensembles in the given filename have been
 processed, the pipeline is closed, and no more data can be fed into
-it. If applicable, any open files handled by the sink can be
-closed. This means that, if a second file is to be processed, the pipe line has
+it. This means that, if a second file is to be processed, the pipe line has
 to be constructed again. If the pipe line is *not* to be closed, so
 that the pipeline will keep accepting data, the positional argument
-of the ``process()`` method /close_coroutine_at_exit/ should be set
+of the ``process()`` method *close_coroutine_at_exit* should be set
 to False.
   
 The full program listing then becomes (examples/convert_ascii.py)
@@ -157,15 +164,15 @@ The full program listing then becomes (examples/convert_ascii.py)
 
   filename = "../data/PF230519.PD0"
 
-  reader = rdi.rdi_reader.PD0()
+  reader = adcpreader.rdi_reader.PD0()
 
-  enu_sfu = rdi.rdi_transforms.TransformENU_SFU()
-  sfu_xyz = rdi.rdi_transforms.TransformSFU_XYZ(hdg=0, pitch=0.1919, roll=0)
-  xyz_sfu = rdi.rdi_transforms.TransformXYZ_SFU(hdg=0, pitch=0.2239, roll=0)
+  enu_sfu = adcpreader.rdi_transforms.TransformENU_SFU()
+  sfu_xyz = adcpreader.rdi_transforms.TransformSFU_XYZ(hdg=0, pitch=0.1919, roll=0)
+  xyz_sfu = adcpreader.rdi_transforms.TransformXYZ_SFU(hdg=0, pitch=0.2239, roll=0)
   transform = xyz_sfu * sfu_xyz * enu_sfu
 
   with open("example_data.txt", "w") as fp:
-      writer = rdi.rdi_writer.AsciiWriter(fp)
+      writer = adcpreader.rdi_writer.AsciiWriter(fp)
 
       # set up the pipeline
       reader.send_to(transform)

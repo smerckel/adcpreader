@@ -53,7 +53,27 @@ netCDF. The operations in between can be:
 * speed of sound corrections,
 * quality control of data.
   
+Making a Pipe line
+------------------
+
+Each operation is a coroutine. Coroutines can be easily joined
+together, making the output of one being the input of the next. If we
+have defined two operations :code:`op1` and :code:`op2` we can chain
+them together as ::
+
+  op1.send_to(op2)
+
+Now, all data sent to :code:`op1`, will also be sent to
+:code:`op2`. Chaining many operations together results in considerable
+visual pollution. Instead, we can use the pipe symbol :code:`|` to
+chain operations together ::
+   
+  pipeline = op1 | op2
 
 
+which is equivalent to ::
+  
+  op1.send_to(op2)
+  pipeline = op1
 
 

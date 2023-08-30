@@ -223,7 +223,13 @@ class ValueLimit(QualityControl):
                 for s, ps in dependent_parameters.items():
                     for p in ps:
                         ens[s][p] = self.apply_condition(condition, ens[s][p])
-                keep_ensemble = not condition
+                try:
+                    keep_ensemble = not condition
+                except ValueError as e:
+                    if e.args[0] == 'The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()':
+                        keep_ensemble = not np.all(condition)
+                    else:
+                        raise e # unexpected error, reraise just in case.
             # do things slightly different if regex is used
             for section, parameter, operator, value, boolean in self.rules['regex']:
                 if section not in ens.keys():
@@ -251,7 +257,13 @@ class ValueLimit(QualityControl):
                         pass
                 for p in matching_parameters:
                     ens[section][p] = self.apply_condition(condition, ens[section][p])
-                keep_ensemble = not condition
+                try:
+                    keep_ensemble = not condition
+                except ValueError as e:
+                    if e.args[0] == 'The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()':
+                        keep_ensemble = not np.all(condition)
+                    else:
+                        raise e # unexpected error, reraise just in case.
         return keep_ensemble
             
 

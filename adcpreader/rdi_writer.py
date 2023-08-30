@@ -490,10 +490,7 @@ class NetCDFWriter(Writer):
                 self.add_ensemble(ens, variables)
                 if self.ensemble_size_limit and self.ensemble_counter==self.ensemble_size_limit:
                     self.open()
-        if not self.is_context_manager:
-            # if we leave the coroutine, only close the file if we are not in a context manager.
-            self.close()
-
+        
     def add_custom_parameter(self, name, fmt='f4', dtype='scalar', unit=''):
         ''' Add parameter to the list of parameters to be written to file.
 

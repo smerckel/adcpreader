@@ -21,7 +21,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('../..'))
 
-import rdi
+import adcpreader
 import slocum
 
 
@@ -50,8 +50,8 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'Python RDI ADCP'
-copyright = '2017,2018,2019 Lucas Merckelbach'
+project = 'Python ADCP reader'
+copyright = '2017-2023 Lucas Merckelbach'
 author = 'Lucas Merckelbach'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -59,7 +59,7 @@ author = 'Lucas Merckelbach'
 # built documents.
 #
 # The short X.Y version.
-version = rdi.__VERSION__
+version = adcpreader.__VERSION__
 # The full version, including alpha/beta/rc tags.
 release = version
 
@@ -68,7 +68,7 @@ release = version
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = None
+language = "en"
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
