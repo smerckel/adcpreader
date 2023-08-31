@@ -5,6 +5,12 @@ ADCPREADER - A python3 module for reading RDI's ADCP binary data files.
 
 Change log
 ----------
+Version 0.2.0
+
+* Changed name to adcpreader
+* Updated documentation
+* Documentation on readthedocs
+* Glider specific parts of the code have been removed (including unpublished python dependencies)
 
 Version 0.1.0
 
