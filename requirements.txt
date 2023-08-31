@@ -2,4 +2,3 @@ numpy
 scipy
 gsw
 netCDF4
-sphinx_rtd_theme
