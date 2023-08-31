@@ -12,8 +12,8 @@ from distutils.core import setup
 setup(name="adcpreader",
       version=version,
       packages = ["adcpreader"],
-      scripts = [''],
+      scripts = [],
       author = "Lucas Merckelbach",
       author_email = "lucas.merckelbach@hereon.de",
-      url = "")
+      url = "https://github.com/smerckel/adcpreader.git")
 
