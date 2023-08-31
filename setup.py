@@ -5,7 +5,7 @@ adcpreader: a python module for reading and processing RDI ADCP data files.
 """
 import setuptools
 
-with open("dbdreader/__init__.py", "r") as fh:
+with open("adcpreader/__init__.py", "r") as fh:
     VERSION = fh.readline().strip().split("=")[1].replace('"', '')
 
 with open("README.rst", "r") as fh:
@@ -16,16 +16,6 @@ with open('requirements.txt') as fh:
 
 
 
-setup(name="adcpreader",
-      version=VERSION,
-      packages = ["adcpreader"],
-      scripts = [],
-      author = "Lucas Merckelbach",
-      author_email = "lucas.merckelbach@hereon.de",
-      url = "https://github.com/smerckel/adcpreader.git")
-
-
-    
 setuptools.setup(
     name="adcpreader",
     version=VERSION,
