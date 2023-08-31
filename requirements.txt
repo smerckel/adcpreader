@@ -3,3 +3,4 @@ scipy
 gsw
 dbdreader
 netCDF4
+sphinx_rtd_theme
