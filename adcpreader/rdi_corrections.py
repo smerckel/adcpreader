@@ -2,15 +2,9 @@ from collections import deque
 
 import datetime
 import numpy as np
-from scipy.interpolate import interp1d
 
-try:
-    import gsw
-except ImportError:
-    print("Failed to import gsw module. Not all corrections may be available.")
-    
+import gsw
 
-import dbdreader
 
 from adcpreader import __VERSION__
 from adcpreader import rdi_transforms
@@ -20,45 +14,6 @@ from adcpreader.rdi_transforms import RotationMatrix
 from adcpreader.coroutine import coroutine, Coroutine
 
 
-class AttitudeFromGlider(Coroutine):
-
-    def __init__(self, dbd_pattern):
-        super().__init__()
-        ifuns = self.initialise_interpolating_functions(dbd_pattern)
-        self.coro_fun = self.coro_attitude_correction(ifuns)
-        
-    def initialise_interpolating_functions(self, dbd_pattern):
-        dbd = dbdreader.MultiDBD(pattern=dbd_pattern)
-        t, pitch, hdg, roll = dbd.get_sync("m_pitch", "m_heading", "m_roll")
-        x = np.cos(hdg)
-        y = np.sin(hdg)
-        fun_y = interp1d(t, y)
-        fun_x = interp1d(t, x)
-        def fun_heading(tm):
-            return np.arctan2(fun_y(tm), fun_x(tm))
-                              
-        ifuns = dict(heading = fun_heading,
-                     pitch = interp1d(t, pitch),
-                     roll = interp1d(t, roll))
-        return ifuns
-
-    @coroutine
-    def coro_attitude_correction(self, ifuns):
-        while True:
-            try:
-                ens = (yield)
-            except GeneratorExit:
-                break
-            else:
-                t = ens['variable_leader']['Timestamp']
-                pitch = ifuns['pitch'](t)
-                roll = ifuns['roll'](t)
-                heading = ifuns['heading'](t)
-                ens['variable_leader']['Pitch'] = pitch / np.pi * 180
-                ens['variable_leader']['Roll'] = roll / np.pi * 180
-                ens['variable_leader']['Heading'] = heading / np.pi * 180 
-                self.send(ens)
-        self.close_coroutine()
         
 class SpeedOfSoundCorrection(Coroutine):
     Vhor = dict(velocity=['Velocity1', 'Velocity2'],
