@@ -1,10 +1,11 @@
 |PyPI version| |Docs badge| |License|
 
 ADCPREADER - A python3 module for reading RDI's ADCP binary data files.
-=========
+=======================================================================
 
 Change log
 ----------
+
 Version 0.2.1
 
 * Changed name to adcpreader
@@ -43,10 +44,12 @@ be installed from PyPi, using ``pip install adcpreader``.
 
 Documentation
 -------------
+
 Comprehensive documentation is provided at https://adcpreader.readthedocs.io/en/latest/
 
 Quick-start
 -----------
+
 For the impatient...
 
 The module *adcpreader* implements a class PD0(), which returns an object the
@@ -111,6 +114,7 @@ some way modify the data. You could define an operator::
 
   >>> info = adcpreader.rdi_writer.Info(pause=True)
 
+  
 and create a new pipeline::
 
   >>> pipeline = source | info | sink
