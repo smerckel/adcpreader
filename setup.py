@@ -4,10 +4,13 @@ adcpreader: a python module for reading and processing RDI ADCP data files.
 
 """
 import setuptools
+import sys
+sys.path.insert(0,'.')
 
-with open("adcpreader/__init__.py", "r") as fh:
-    VERSION = fh.readline().strip().split("=")[1].replace('"', '')
+import adcpreader.__init__ as ai
 
+VERSION = ai.__VERSION__
+            
 with open("README.rst", "r") as fh:
     long_description = fh.read()
     
